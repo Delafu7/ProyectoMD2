@@ -1,0 +1,176 @@
+Subject,target,label
+subject101,suffer+in favour,1
+subject104,suffer+in favour,1
+subject106,suffer+in favour,1
+subject108,suffer+in favour,1
+subject109,control,0
+subject11,control,0
+subject110,suffer+in favour,1
+subject111,control,0
+subject112,suffer+in favour,1
+subject113,suffer+in favour,1
+subject114,suffer+in favour,1
+subject115,suffer+in favour,1
+subject116,suffer+in favour,1
+subject117,control,0
+subject118,suffer+in favour,1
+subject119,control,0
+subject12,control,0
+subject121,suffer+against,1
+subject122,suffer+in favour,1
+subject123,suffer+in favour,1
+subject124,suffer+in favour,1
+subject125,suffer+against,1
+subject126,control,0
+subject127,suffer+in favour,1
+subject128,control,0
+subject129,suffer+in favour,1
+subject13,suffer+in favour,1
+subject130,control,0
+subject131,control,0
+subject132,suffer+in favour,1
+subject133,suffer+against,1
+subject134,suffer+against,1
+subject135,suffer+against,1
+subject136,control,0
+subject137,suffer+in favour,1
+subject138,control,0
+subject139,control,0
+subject14,control,0
+subject140,suffer+in favour,1
+subject141,suffer+in favour,1
+subject142,suffer+in favour,1
+subject143,suffer+in favour,1
+subject144,suffer+against,1
+subject145,suffer+against,1
+subject146,suffer+against,1
+subject147,suffer+against,1
+subject148,control,0
+subject149,suffer+against,1
+subject15,suffer+in favour,1
+subject150,suffer+in favour,1
+subject151,control,0
+subject152,suffer+in favour,1
+subject153,suffer+in favour,1
+subject154,suffer+against,1
+subject155,suffer+against,1
+subject156,suffer+in favour,1
+subject157,suffer+against,1
+subject158,suffer+in favour,1
+subject159,control,0
+subject16,control,0
+subject160,suffer+in favour,1
+subject161,control,0
+subject162,suffer+in favour,1
+subject163,control,0
+subject164,suffer+against,1
+subject165,suffer+against,1
+subject166,suffer+in favour,1
+subject167,suffer+against,1
+subject168,suffer+in favour,1
+subject169,suffer+in favour,1
+subject17,control,0
+subject170,control,0
+subject171,suffer+in favour,1
+subject172,control,0
+subject173,suffer+in favour,1
+subject174,suffer+against,1
+subject175,suffer+in favour,1
+subject176,suffer+in favour,1
+subject177,suffer+in favour,1
+subject178,suffer+in favour,1
+subject179,control,0
+subject18,suffer+in favour,1
+subject180,control,0
+subject181,suffer+in favour,1
+subject182,suffer+in favour,1
+subject183,suffer+in favour,1
+subject187,control,0
+subject189,suffer+against,1
+subject19,control,0
+subject191,control,0
+subject192,control,0
+subject194,control,0
+subject197,control,0
+subject20,suffer+against,1
+subject201,control,0
+subject202,control,0
+subject203,control,0
+subject204,control,0
+subject207,suffer+against,1
+subject208,control,0
+subject209,control,0
+subject21,suffer+against,1
+subject211,control,0
+subject213,control,0
+subject218,suffer+other,1
+subject219,suffer+other,1
+subject222,suffer+against,1
+subject223,suffer+against,1
+subject224,control,0
+subject226,control,0
+subject227,suffer+against,1
+subject228,suffer+against,1
+subject229,control,0
+subject23,control,0
+subject230,control,0
+subject231,control,0
+subject232,control,0
+subject233,control,0
+subject236,suffer+other,1
+subject237,control,0
+subject238,control,0
+subject239,control,0
+subject24,control,0
+subject241,suffer+against,1
+subject243,suffer+other,1
+subject245,control,0
+subject247,suffer+against,1
+subject248,control,0
+subject249,suffer+against,1
+subject25,control,0
+subject250,suffer+against,1
+subject252,control,0
+subject253,control,0
+subject254,control,0
+subject255,suffer+against,1
+subject257,suffer+against,1
+subject258,control,0
+subject26,suffer+against,1
+subject261,suffer+against,1
+subject263,control,0
+subject264,suffer+against,1
+subject268,suffer+against,1
+subject269,suffer+against,1
+subject27,control,0
+subject271,suffer+other,1
+subject272,control,0
+subject273,suffer+against,1
+subject275,control,0
+subject276,control,0
+subject277,control,0
+subject278,control,0
+subject279,suffer+against,1
+subject281,control,0
+subject283,suffer+other,1
+subject289,control,0
+subject29,control,0
+subject291,suffer+against,1
+subject298,control,0
+subject30,suffer+against,1
+subject300,control,0
+subject301,suffer+against,1
+subject302,control,0
+subject304,control,0
+subject305,control,0
+subject307,suffer+against,1
+subject308,control,0
+subject309,suffer+against,1
+subject310,control,0
+subject313,control,0
+subject314,suffer+against,1
+subject316,control,0
+subject322,control,0
+subject323,control,0
+subject325,control,0
+subject328,control,0
