@@ -1,0 +1,6 @@
+-Mirar las pruebas hechas anteriormente, mirar atencedentes para vectorización
+-Implementar DBscam
+-Asignación basandose al criterio del DBscam, según su radio y los que estan más cerca.
+-Elegir el minimo
+-Criterio para los radios y números de vecinos en cada radio
+-Guardar core-points por cada instancia
