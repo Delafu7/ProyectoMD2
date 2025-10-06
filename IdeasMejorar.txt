@@ -4,3 +4,16 @@
 -Elegir el minimo
 -Criterio para los radios y números de vecinos en cada radio
 -Guardar core-points por cada instancia
+
+-----------------------------------------------------------------------------------------
+
+Divisiones grupo:
+
+(Trabajo en grupo)
+-Preprocesar los datos
+-Mirar bien vectorización
+-Clustering
+-Decidir mejor radio y vecinos cercanos
+-PCA
+-Estabilidad del modelo
+-Probar con distintas semillas(seeds)
