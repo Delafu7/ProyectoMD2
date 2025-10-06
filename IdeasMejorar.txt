@@ -17,3 +17,4 @@ Divisiones grupo:
 -PCA
 -Estabilidad del modelo
 -Probar con distintas semillas(seeds)
+-Subject+mensaje -> json 
