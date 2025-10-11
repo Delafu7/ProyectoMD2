@@ -1,5 +1,11 @@
 # ProyectoMD2
 
+## Ejecutar
+
+```bash
+python3 entrenamientoDeModelo.py 
+```
+
 ## Tareas a realizar:
 
 - Realizar vectorización (mirar bien, la docu de la info de la vectorización)
