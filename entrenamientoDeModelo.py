@@ -12,7 +12,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 import torch
 import math
-
+import matplotlib.pyplot as plt
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
