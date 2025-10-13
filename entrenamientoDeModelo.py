@@ -5,6 +5,9 @@ import unicodedata
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
+import numpy as np
+from transformers import AutoModel, AutoTokenizer
+from pysentimiento.preprocessing import preprocess_tweet
 
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
@@ -119,6 +122,57 @@ def preprocesar_datos():
 def vectorizar_datos():
     # Aquí iría la lógica de vectorización de datos
     pass
+
+
+
+def generar_embeddings_robertuito(model_name="pysentimiento/robertuito-base-uncased", max_length=128):
+    # Cargar datos preprocesados (tokens) o textos limpios
+    with open("train_preprocesado.json", "r", encoding="utf-8") as f:
+        train_pre = json.load(f)
+    with open("test_preprocesado.json", "r", encoding="utf-8") as f:
+        test_pre = json.load(f)
+
+    # Reconstruir textos a partir de tokens
+    train_texts = [" ".join(tokens) for tokens in train_pre]
+    test_texts = [" ".join(tokens) for tokens in test_pre]
+
+    # Cargar modelo y tokenizador RoBERTuito
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
+
+    def texto_a_embedding(texto):
+        # aplicar preprocesamiento especial de tweet
+        texto_proc = preprocess_tweet(texto)
+        # tokenizar
+        enc = tokenizer(
+            texto_proc,
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            return_tensors="pt",
+        )
+        # hacer pase hacia adelante
+        with torch.no_grad():
+            out = model(**enc)
+        # Extraer embedding: por ejemplo, usar la media de los tokens (pooling)
+        last_hidden = out.last_hidden_state  # [batch_size, seq_len, hidden_dim]
+        # Promediar tokens (excluyendo padding) — simple estrategia
+        mask = enc["attention_mask"].unsqueeze(-1)  # para propagar la máscara
+        summed = torch.sum(last_hidden * mask, dim=1)
+        counts = torch.sum(mask, dim=1)
+        embedding = summed / counts  # forma: [hidden_dim]
+        return embedding.cpu().numpy()
+
+    # Generar embeddings para train y test
+    X_train_emb = np.array([texto_a_embedding(t) for t in train_texts])
+    X_test_emb = np.array([texto_a_embedding(t) for t in test_texts])
+
+    # Guardar
+    np.save("X_train_robertuito.npy", X_train_emb)
+    np.save("X_test_robertuito.npy", X_test_emb)
+
+    print("Embeddings con RoBERTuito generados:", X_train_emb.shape, X_test_emb.shape)
+
 #--------------------------------------------------------------------------------------
 
 def PCA_reduccion_dimensionalidad():
