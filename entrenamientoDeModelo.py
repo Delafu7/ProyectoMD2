@@ -148,9 +148,10 @@ def vectorizar_TfidF():
     np.save("X_train_tfidf.npy", X_train.toarray())
     np.save("X_test_tfidf.npy", X_test.toarray())
 
-    # Guardar vocabulario por si necesitas usarlo más tarde
-    with open("tfidf_vocab.json", "w", encoding="utf-8") as f:
-        json.dump(vectorizer.vocabulary_, f, ensure_ascii=False, indent=2)
+    vocab = {str(k): int(v) for k, v in vectorizer.vocabulary_.items()}
+
+    with open("vocabulary.json", "w", encoding="utf-8") as f:
+        json.dump(vocab, f, ensure_ascii=False, indent=2)
 
     print(f"Vectorización completada: {X_train.shape[0]} train docs, {X_train.shape[1]} features")
 
@@ -214,7 +215,7 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 #--------------------------------------------------------------------------------------
 
-def PCA_reduccion_dimensionalidad(n_componentes=[5,10,20,50,100,200], tipo_vectorizacion="TfidF"):
+def PCA_reduccion_dimensionalidad(n_componentes=[50,100], tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data = np.load("X_test_tfidf.npy")
@@ -231,15 +232,17 @@ def PCA_reduccion_dimensionalidad(n_componentes=[5,10,20,50,100,200], tipo_vecto
     mejor_pca = None
     mejor_n = None
 
+
     # Iterar sobre distintos números de componentes
     for n in n_componentes:
+        print(n)
         pca = PCA(n_components=n)
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
 
         # Clustering DBSCAN manual
-        etiquetas = dbscan(X_train_reducido, eps=0.5, min_samples=5)
-
+        etiquetas = dbscan(X_train_reducido, eps=0.08, min_pts=5)
+        print(etiquetas)
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
         if np.sum(mask) <= 1:
@@ -277,10 +280,11 @@ def distancia(p1, p2):
 
 def region_query(datos, punto_idx, eps):
     """Encuentra todos los vecinos dentro de eps"""
-    vecinos = []
-    for i in range(len(datos)):
-        if distancia(datos[punto_idx], datos[i]) <= eps:
-            vecinos.append(i)
+    punto = datos[punto_idx]
+    # calcular distancias a todos los puntos de manera vectorizada
+    distancias = np.linalg.norm(datos - punto, axis=1)
+    # devolver índices de vecinos dentro de eps
+    vecinos = np.where(distancias <= eps)[0].tolist()
     return vecinos
 
 def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts):
@@ -308,6 +312,7 @@ def dbscan(datos, eps, min_pts):
     labels = [0] * len(datos)  # 0 = no visitado, -1 = ruido, >0 = cluster_id
 
     for i in range(len(datos)):
+        print(i)
         if labels[i] != 0:
             continue
         vecinos = region_query(datos, i, eps)
@@ -368,7 +373,7 @@ def nueva_instancia_a_clusterizar(instancia):
 #--------------------------------------------------------------------------------------
 
 def visualizar_clusters(tipo_vectorizacion="TfidF"):
-    X = np.load(f"X_train_{tipo_vectorizacion}_pca.npy")
+    X = np.load("X_train_pca_best.npy")
     labels = np.load(f"labels_{tipo_vectorizacion}_dbscan.npy")
 
     plt.scatter(X[:,0], X[:,1], c=labels, cmap='tab10', s=10)
@@ -381,10 +386,10 @@ if __name__ == "__main__":
     agrupar_train_test()
     preprocesar_datos()
 
-    # Vectorización con RoBERTuito + PCA
+    # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion="TfidF")
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion="TfidF", n_componentes=50)
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion="TfidF", n_componentes=[50,100])
 
     # Clustering manual DBSCAN
-    clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=1.5, min_pts=5)
+    clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.08, min_pts=5)
 
