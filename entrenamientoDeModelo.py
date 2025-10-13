@@ -172,6 +172,10 @@ def generar_embeddings_robertuito(model_name="pysentimiento/robertuito-base-unca
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
 
+    # Para que trabaje con GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
     def texto_a_embedding(texto):
         # aplicar preprocesamiento especial de tweet
         texto_proc = preprocess_tweet(texto)

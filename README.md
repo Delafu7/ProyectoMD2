@@ -6,6 +6,7 @@
 python3 entrenamientoDeModelo.py 
 ```
 
+[Robertuito artículo](https://dataloop.ai/library/model/pysentimiento_robertuito-emotion-analysis/)
 ## Tareas a realizar:
 
 - Realizar vectorización (mirar bien, la docu de la info de la vectorización)
