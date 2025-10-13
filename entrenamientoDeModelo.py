@@ -1,11 +1,15 @@
 import os
 import json
 import re
+
+import joblib
 import unicodedata
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from sympy.physics.control.control_plots import plt
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -210,7 +214,7 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 #--------------------------------------------------------------------------------------
 
-def PCA_reduccion_dimensionalidad(n_componentes=50, tipo_vectorizacion="TfidF"):
+def PCA_reduccion_dimensionalidad(n_componentes=[5,10,20,50,100,200], tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data = np.load("X_test_tfidf.npy")
@@ -220,14 +224,50 @@ def PCA_reduccion_dimensionalidad(n_componentes=50, tipo_vectorizacion="TfidF"):
     else:
         raise ValueError("Tipo de vectorización no soportado.")
 
-    pca = PCA(n_components=n_componentes)
-    X_train_reduc = pca.fit_transform(X_train_data)
-    X_test_reduc = pca.transform(X_test_data)
+        # Inicialización para guardar el mejor PCA
+    mejor_score = -np.inf
+    mejor_X_train = None
+    mejor_X_test = None
+    mejor_pca = None
+    mejor_n = None
 
-    np.save(f"X_train_{tipo_vectorizacion}_pca.npy", X_train_reduc)
-    np.save(f"X_test_{tipo_vectorizacion}_pca.npy", X_test_reduc)
+    # Iterar sobre distintos números de componentes
+    for n in n_componentes:
+        pca = PCA(n_components=n)
+        X_train_reducido = pca.fit_transform(X_train_data)
+        X_test_reducido = pca.transform(X_test_data)
 
-    print(f"PCA aplicado sobre {tipo_vectorizacion}: {n_componentes} dimensiones finales")
+        # Clustering DBSCAN manual
+        etiquetas = dbscan(X_train_reducido, eps=0.5, min_samples=5)
+
+        # Filtrar ruido para métricas
+        mask = np.array(etiquetas) != -1
+        if np.sum(mask) <= 1:
+            print(f"PCA={n}: No se formaron clusters válidos.")
+            continue
+
+        # Métricas
+        sil_score = silhouette_score(X_train_reducido[mask], np.array(etiquetas)[mask])
+        ch_score = calinski_harabasz_score(X_train_reducido[mask], np.array(etiquetas)[mask])
+
+        # Combinación simple de métricas
+        score_combinado = (sil_score + ch_score / 1000) / 2  # normalizamos CH para escala similar
+
+        print(f"PCA={n}: Silhouette={sil_score:.3f}, CH={ch_score:.1f}, combinado={score_combinado:.3f}")
+
+        # Guardar el mejor
+        if score_combinado > mejor_score:
+            mejor_score = score_combinado
+            mejor_X_train = X_train_reducido
+            mejor_X_test = X_test_reducido
+            mejor_pca = pca
+            mejor_n = n
+
+    # Guardar resultados
+    np.save("X_train_pca_best.npy", mejor_X_train)
+    np.save("X_test_pca_best.npy", mejor_X_test)
+    joblib.dump(mejor_pca, "modelo_pca_best.pkl")
+    print(f"🏆 Mejor PCA: {mejor_n} componentes con score combinado={mejor_score:.3f}")
 
 #--------------------------------------------------------------------------------------
 
@@ -280,17 +320,12 @@ def dbscan(datos, eps, min_pts):
     return labels
 
 
-def clustering_DBSCAN(tipo_vectorizacion="RoBERTuito", eps=0.5, min_pts=5):
+def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=5):
     """
     Aplica DBSCAN sobre los vectores reducidos (PCA) de la representación elegida.
     """
     # Cargar datos reducidos
-    if tipo_vectorizacion == "TfidF":
-        X_train = np.load("X_train_TfidF_pca.npy")
-    elif tipo_vectorizacion == "RoBERTuito":
-        X_train = np.load("X_train_RoBERTuito_pca.npy")
-    else:
-        raise ValueError("Tipo de vectorización no soportado.")
+    X_train = np.load("X_train_pca_best.npy")  # <- archivo generado por PCA_reduccion_dimensionalidad
 
     print(f"Clustering DBSCAN sobre {tipo_vectorizacion}... ({X_train.shape[0]} muestras)")
 
@@ -332,7 +367,7 @@ def nueva_instancia_a_clusterizar(instancia):
 
 #--------------------------------------------------------------------------------------
 
-def visualizar_clusters(tipo_vectorizacion="RoBERTuito"):
+def visualizar_clusters(tipo_vectorizacion="TfidF"):
     X = np.load(f"X_train_{tipo_vectorizacion}_pca.npy")
     labels = np.load(f"labels_{tipo_vectorizacion}_dbscan.npy")
 
@@ -347,9 +382,9 @@ if __name__ == "__main__":
     preprocesar_datos()
 
     # Vectorización con RoBERTuito + PCA
-    vectorizar_datos(tipo_vectorizacion="RoBERTuito")
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion="RoBERTuito", n_componentes=50)
+    vectorizar_datos(tipo_vectorizacion="TfidF")
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion="TfidF", n_componentes=50)
 
     # Clustering manual DBSCAN
-    clustering_DBSCAN(tipo_vectorizacion="RoBERTuito", eps=1.5, min_pts=5)
+    clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=1.5, min_pts=5)
 
