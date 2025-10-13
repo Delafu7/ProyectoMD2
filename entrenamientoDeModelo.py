@@ -8,6 +8,9 @@ from nltk.stem.snowball import SpanishStemmer
 import numpy as np
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import PCA
+import torch
 
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
@@ -119,9 +122,32 @@ def preprocesar_datos():
 
 #--------------------------------------------------------------------------------------
 
-def vectorizar_datos():
-    # Aquí iría la lógica de vectorización de datos
-    pass
+def vectorizar_TfidF():
+    # Cargar datos preprocesados (listas de tokens)
+    with open("train_preprocesado.json", "r", encoding="utf-8") as f:
+        train_pre = json.load(f)
+
+    with open("test_preprocesado.json", "r", encoding="utf-8") as f:
+        test_pre = json.load(f)
+
+    # Unir tokens para usar TfidfVectorizer (se espera texto, no listas)
+    train_texts = [" ".join(tokens) for tokens in train_pre]
+    test_texts = [" ".join(tokens) for tokens in test_pre]
+
+    # Inicializar vectorizador TF-IDF
+    vectorizer = TfidfVectorizer(max_features=5000)  # puedes ajustar este número
+    X_train = vectorizer.fit_transform(train_texts)
+    X_test = vectorizer.transform(test_texts)
+
+    # Guardar los vectores y el vectorizador
+    np.save("X_train_tfidf.npy", X_train.toarray())
+    np.save("X_test_tfidf.npy", X_test.toarray())
+
+    # Guardar vocabulario por si necesitas usarlo más tarde
+    with open("tfidf_vocab.json", "w", encoding="utf-8") as f:
+        json.dump(vectorizer.vocabulary_, f, ensure_ascii=False, indent=2)
+
+    print(f"Vectorización completada: {X_train.shape[0]} train docs, {X_train.shape[1]} features")
 
 
 
@@ -173,11 +199,33 @@ def generar_embeddings_robertuito(model_name="pysentimiento/robertuito-base-unca
 
     print("Embeddings con RoBERTuito generados:", X_train_emb.shape, X_test_emb.shape)
 
+def vectorizar_datos(tipo_vectorizacion="TfidF"):
+    if tipo_vectorizacion == "TfidF":
+        vectorizar_TfidF()
+    elif tipo_vectorizacion == "RoBERTuito":
+        generar_embeddings_robertuito()
+    else:
+        raise ValueError("Tipo de vectorización no soportado.") 
+
 #--------------------------------------------------------------------------------------
 
-def PCA_reduccion_dimensionalidad():
-    # Aquí iría la lógica de reducción de dimensionalidad con PCA
-    pass
+def PCA_reduccion_dimensionalidad(n_componentes=50, tipo_vectorizacion="TfidF"):
+    if tipo_vectorizacion == "TfidF":
+        X_train = np.load("X_train_tfidf.npy")
+        X_test = np.load("X_test_tfidf.npy")
+    elif tipo_vectorizacion == "RoBERTuito":
+        
+        X_train_emb = np.load("X_train_embeddings.npy")
+        X_test_emb = np.load("X_test_embeddings.npy")
+
+    pca = PCA(n_components=n_componentes)
+    X_train_reduc = pca.fit_transform(X_train_emb)
+    X_test_reduc = pca.transform(X_test_emb)
+
+    np.save("X_train_embeddings.npy", X_train_reduc)
+    np.save("X_test_embeddings.npy", X_test_reduc)
+
+    print(f"PCA aplicado sobre embeddings: {n_componentes} dimensiones finales")
 #--------------------------------------------------------------------------------------
 
 def clustering_DBSCAN():
