@@ -330,7 +330,15 @@ def nueva_instancia_a_clusterizar(instancia):
     # Aquí iría la lógica para predecir con nuevos datos
     pass
 
+#--------------------------------------------------------------------------------------
 
+def visualizar_clusters(tipo_vectorizacion="RoBERTuito"):
+    X = np.load(f"X_train_{tipo_vectorizacion}_pca.npy")
+    labels = np.load(f"labels_{tipo_vectorizacion}_dbscan.npy")
+
+    plt.scatter(X[:,0], X[:,1], c=labels, cmap='tab10', s=10)
+    plt.title(f"Clusters DBSCAN - {tipo_vectorizacion}")
+    plt.show()
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
