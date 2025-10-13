@@ -11,6 +11,7 @@ from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 import torch
+import math
 
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
@@ -211,26 +212,101 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 def PCA_reduccion_dimensionalidad(n_componentes=50, tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
-        X_train = np.load("X_train_tfidf.npy")
-        X_test = np.load("X_test_tfidf.npy")
+        X_train_data = np.load("X_train_tfidf.npy")
+        X_test_data = np.load("X_test_tfidf.npy")
     elif tipo_vectorizacion == "RoBERTuito":
-        
-        X_train_emb = np.load("X_train_embeddings.npy")
-        X_test_emb = np.load("X_test_embeddings.npy")
+        X_train_data = np.load("X_train_robertuito.npy")
+        X_test_data = np.load("X_test_robertuito.npy")
+    else:
+        raise ValueError("Tipo de vectorización no soportado.")
 
     pca = PCA(n_components=n_componentes)
-    X_train_reduc = pca.fit_transform(X_train_emb)
-    X_test_reduc = pca.transform(X_test_emb)
+    X_train_reduc = pca.fit_transform(X_train_data)
+    X_test_reduc = pca.transform(X_test_data)
 
-    np.save("X_train_embeddings.npy", X_train_reduc)
-    np.save("X_test_embeddings.npy", X_test_reduc)
+    np.save(f"X_train_{tipo_vectorizacion}_pca.npy", X_train_reduc)
+    np.save(f"X_test_{tipo_vectorizacion}_pca.npy", X_test_reduc)
 
-    print(f"PCA aplicado sobre embeddings: {n_componentes} dimensiones finales")
+    print(f"PCA aplicado sobre {tipo_vectorizacion}: {n_componentes} dimensiones finales")
+
 #--------------------------------------------------------------------------------------
 
-def clustering_DBSCAN():
-    # Aquí iría la lógica de clustering DBSCAN
-    pass
+def distancia(p1, p2):
+    """Calcula distancia euclidiana entre dos puntos"""
+    return math.sqrt(sum((a - b)**2 for a, b in zip(p1, p2)))
+
+def region_query(datos, punto_idx, eps):
+    """Encuentra todos los vecinos dentro de eps"""
+    vecinos = []
+    for i in range(len(datos)):
+        if distancia(datos[punto_idx], datos[i]) <= eps:
+            vecinos.append(i)
+    return vecinos
+
+def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts):
+    """Expande un cluster agregando puntos densos"""
+    labels[punto_idx] = cluster_id
+    i = 0
+    while i < len(vecinos):
+        vecino_idx = vecinos[i]
+        if labels[vecino_idx] == -1:
+            labels[vecino_idx] = cluster_id  # De ruido a cluster
+        elif labels[vecino_idx] == 0:
+            labels[vecino_idx] = cluster_id
+            nuevos_vecinos = region_query(datos, vecino_idx, eps)
+            if len(nuevos_vecinos) >= min_pts:
+                vecinos.extend(nuevos_vecinos)
+        i += 1
+
+def dbscan(datos, eps, min_pts):
+    """
+    datos: lista de puntos [[x1, y1], [x2, y2], ...]
+    eps: radio de vecindad
+    min_pts: mínimo de puntos para formar cluster
+    """
+    cluster_id = 0
+    labels = [0] * len(datos)  # 0 = no visitado, -1 = ruido, >0 = cluster_id
+
+    for i in range(len(datos)):
+        if labels[i] != 0:
+            continue
+        vecinos = region_query(datos, i, eps)
+        if len(vecinos) < min_pts:
+            labels[i] = -1  # Ruido
+        else:
+            cluster_id += 1
+            expand_cluster(datos, labels, i, vecinos, cluster_id, eps, min_pts)
+
+    return labels
+
+
+def clustering_DBSCAN(tipo_vectorizacion="RoBERTuito", eps=0.5, min_pts=5):
+    """
+    Aplica DBSCAN sobre los vectores reducidos (PCA) de la representación elegida.
+    """
+    # Cargar datos reducidos
+    if tipo_vectorizacion == "TfidF":
+        X_train = np.load("X_train_TfidF_pca.npy")
+    elif tipo_vectorizacion == "RoBERTuito":
+        X_train = np.load("X_train_RoBERTuito_pca.npy")
+    else:
+        raise ValueError("Tipo de vectorización no soportado.")
+
+    print(f"Clustering DBSCAN sobre {tipo_vectorizacion}... ({X_train.shape[0]} muestras)")
+
+    # Convertir a lista de listas (para tu función DBSCAN)
+    datos_lista = X_train.tolist()
+
+    # Aplicar DBSCAN
+    etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts)
+
+    # Guardar etiquetas en un archivo
+    np.save(f"labels_{tipo_vectorizacion}_dbscan.npy", etiquetas)
+
+    # Contar clusters encontrados
+    num_clusters = len(set([l for l in etiquetas if l != -1]))
+    print(f"Clusters encontrados: {num_clusters}")
+    print(f"Puntos ruido: {etiquetas.count(-1)}")
 #--------------------------------------------------------------------------------------
 
 def entrenar_modelo():
@@ -258,10 +334,14 @@ def nueva_instancia_a_clusterizar(instancia):
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
-
 if __name__ == "__main__":
     agrupar_train_test()
     preprocesar_datos()
-    vectorizar_datos()
-    PCA_reduccion_dimensionalidad()
-    clustering_DBSCAN()
+
+    # Vectorización con RoBERTuito + PCA
+    vectorizar_datos(tipo_vectorizacion="RoBERTuito")
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion="RoBERTuito", n_componentes=50)
+
+    # Clustering manual DBSCAN
+    clustering_DBSCAN(tipo_vectorizacion="RoBERTuito", eps=1.5, min_pts=5)
+
