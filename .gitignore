@@ -1,2 +1,6 @@
 .venv/*
 venv/
+# Ignorar archivos de datos grandes
+X_train_tfidf.npy
+X_test_tfidf.npy
+*.npy
