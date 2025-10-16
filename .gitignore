@@ -4,3 +4,4 @@ venv/
 X_train_tfidf.npy
 X_test_tfidf.npy
 *.npy
+*.npz
