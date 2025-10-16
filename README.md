@@ -16,3 +16,7 @@ python3 entrenamientoDeModelo.py
 - Estabilidad del modelo (Obtener una métrica para evaluar a partir de las demas métricas)
 - Probar con distintas semillas(seeds) -> Con semillas, supongo que será con el random
 - Evaluar una nueva instancia según el módelo obtenido.
+- Evaluar con las librerias sk-learn DBScan.
+- Robetuito entrenar
+- Class to cluster al final.
+- Asignación clustering

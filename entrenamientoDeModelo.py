@@ -9,14 +9,13 @@ from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
-from sympy.physics.control.control_plots import plt
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 import torch
 import math
-import matplotlib.pyplot as plt
+from sympy.physics.control.control_plots import plt
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -105,17 +104,21 @@ def limpiar_texto(texto):
 
     return tokens
 
-def preprocesar_datos():
+def preprocesar_datos(tipo_vectorizacion):
         # Cargar mensajes
     with open("train.json", "r", encoding="utf-8") as f:
         train_msgs = json.load(f)
 
     with open("test.json", "r", encoding="utf-8") as f:
         test_msgs = json.load(f)
-
-    # Preprocesar
-    train_pre = [limpiar_texto(m) for m in train_msgs]
-    test_pre = [limpiar_texto(m) for m in test_msgs]
+    if tipo_vectorizacion == "RoBERTuito":
+        # Preprocesar
+        train_pre = [preprocess_tweet(m) for m in train_msgs]
+        test_pre = [preprocess_tweet(m) for m in test_msgs]
+    elif tipo_vectorizacion == "TfidF":
+        # Preprocesar
+        train_pre = [limpiar_texto(m) for m in train_msgs]
+        test_pre = [limpiar_texto(m) for m in test_msgs]
 
     # Guardar
     with open("train_preprocesado.json", "w", encoding="utf-8") as f:
@@ -124,6 +127,7 @@ def preprocesar_datos():
     with open("test_preprocesado.json", "w", encoding="utf-8") as f:
         json.dump(test_pre, f, ensure_ascii=False, indent=2)
     
+    print(f"Preprocesamiento completado: {len(train_pre)} train, {len(test_pre)} test")    
 
 #--------------------------------------------------------------------------------------
 
@@ -140,7 +144,7 @@ def vectorizar_TfidF():
     test_texts = [" ".join(tokens) for tokens in test_pre]
 
     # Inicializar vectorizador TF-IDF
-    vectorizer = TfidfVectorizer(max_features=5000)  # puedes ajustar este número
+    vectorizer = TfidfVectorizer(max_features=8000)  # puedes ajustar este número
     X_train = vectorizer.fit_transform(train_texts)
     X_test = vectorizer.transform(test_texts)
 
@@ -216,6 +220,7 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
         generar_embeddings_robertuito()
     else:
         raise ValueError("Tipo de vectorización no soportado.") 
+    print(f"Vectorización con {tipo_vectorizacion} completada.")
 
 #--------------------------------------------------------------------------------------
 
@@ -312,6 +317,7 @@ def dbscan(datos, eps, min_pts):
     eps: radio de vecindad
     min_pts: mínimo de puntos para formar cluster
     """
+    datos = np.array(datos) # TODO: no se si esto es necesario
     cluster_id = 0
     labels = [0] * len(datos)  # 0 = no visitado, -1 = ruido, >0 = cluster_id
 
@@ -387,13 +393,14 @@ def visualizar_clusters(tipo_vectorizacion="TfidF"):
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    tipo_vectorizacion ="RoBERTuito" # "TfidF" o "RoBERTuito"
     agrupar_train_test()
-    preprocesar_datos()
+    preprocesar_datos(tipo_vectorizacion)
 
     # Vectorización con TfidF + PCA
-    vectorizar_datos(tipo_vectorizacion="TfidF")
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion="TfidF", n_componentes=[50,100])
+    vectorizar_datos(tipo_vectorizacion)
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[50,100])
 
     # Clustering manual DBSCAN
-    clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.08, min_pts=5)
+    clustering_DBSCAN(tipo_vectorizacion, eps=0.08, min_pts=5)
 
