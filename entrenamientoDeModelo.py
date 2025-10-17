@@ -15,7 +15,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 import torch
 import math
-from sympy.physics.control.control_plots import plt
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from collections import defaultdict
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -29,11 +31,9 @@ stemmer = SpanishStemmer()
 # Metodos/Funciones
 
 def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", salida_test="test.json"):
-    mensajes_train = []
-    mensajes_test = []
-    num_mensajes_test = 0
-    num_mensajes_train = 0
-    # Recorremos las categorías (Ej: Ansiedad, Depresion, etc.)
+    data_train = defaultdict(list)
+    data_test = defaultdict(list)
+    # Recorremos las categorías
     for categoria in os.listdir(ruta_base):
         ruta_categoria = os.path.join(ruta_base, categoria)
         if not os.path.isdir(ruta_categoria):
@@ -48,33 +48,87 @@ def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", 
                     ruta_archivo = os.path.join(ruta_train, archivo)
                     with open(ruta_archivo, "r", encoding="utf-8") as f:
                         datos_json = json.load(f)
-                        for elemento in datos_json:
-                            if "message" in elemento:
-                                mensajes_train.append(elemento["message"])
-                                num_mensajes_train += 1
+                        for elem in datos_json:
+                            persona_id = archivo.replace(".json", "")
+                            if "message" in elem:
+                                data_train[persona_id].append(elem["message"])
+
         # --- TEST ---
         ruta_test = os.path.join(ruta_categoria, "Test")
         if os.path.exists(ruta_test):
-            print(f"Procesando test en {ruta_test}")
+            print(f"Procesando Test en {ruta_test}")
             for archivo in os.listdir(ruta_test):
                 if archivo.endswith(".json"):
                     ruta_archivo = os.path.join(ruta_test, archivo)
                     with open(ruta_archivo, "r", encoding="utf-8") as f:
                         datos_json = json.load(f)
-                        for elemento in datos_json:
-                            if "message" in elemento:
-                                mensajes_test.append(elemento["message"])
-                                num_mensajes_test += 1
-    # Guardar los mensajes en dos archivos separados
+                        for elem in datos_json:
+                            persona_id = archivo.replace(".json", "")
+                            if "message" in elem:
+                                data_test[persona_id].append(elem["message"])
+
+    # Convertir defaultdict a lista de diccionarios
+    train_list = [{"persona": pid, "mensajes": msgs} for pid, msgs in data_train.items()]
+    test_list = [{"persona": pid, "mensajes": msgs} for pid, msgs in data_test.items()]
+
+    # Guardar
     with open(salida_train, "w", encoding="utf-8") as f_train:
-        json.dump(mensajes_train, f_train, ensure_ascii=False, indent=2)
+        json.dump(train_list, f_train, ensure_ascii=False, indent=2)
 
     with open(salida_test, "w", encoding="utf-8") as f_test:
-        json.dump(mensajes_test, f_test, ensure_ascii=False, indent=2)
+        json.dump(test_list, f_test, ensure_ascii=False, indent=2)
 
-    print(f"Total mensajes en train: {num_mensajes_train}")
-    print(f"Total mensajes en test: {num_mensajes_test}")
+    print(f"Total personas en train: {len(train_list)}")
+    print(f"Total personas en test: {len(test_list)}")
+    """ 
+        mensajes_train = []
+        mensajes_test = []
+        num_mensajes_test = 0
+        num_mensajes_train = 0
+        # Recorremos las categorías (Ej: Ansiedad, Depresion, etc.)
+        for categoria in os.listdir(ruta_base):
+            ruta_categoria = os.path.join(ruta_base, categoria)
+            if not os.path.isdir(ruta_categoria):
+                continue
 
+            # --- TRAIN ---
+            ruta_train = os.path.join(ruta_categoria, "Train")
+            if os.path.exists(ruta_train):
+                print(f"Procesando Train en {ruta_train}")
+                for archivo in os.listdir(ruta_train):
+                    if archivo.endswith(".json"):
+                        ruta_archivo = os.path.join(ruta_train, archivo)
+                        with open(ruta_archivo, "r", encoding="utf-8") as f:
+                            datos_json = json.load(f)
+                            for elemento in datos_json:
+
+                                
+                                if "message" in elemento:
+                                    mensajes_train.append(elemento["message"])
+                                    num_mensajes_train += 1
+            # --- TEST ---
+            ruta_test = os.path.join(ruta_categoria, "Test")
+            if os.path.exists(ruta_test):
+                print(f"Procesando test en {ruta_test}")
+                for archivo in os.listdir(ruta_test):
+                    if archivo.endswith(".json"):
+                        ruta_archivo = os.path.join(ruta_test, archivo)
+                        with open(ruta_archivo, "r", encoding="utf-8") as f:
+                            datos_json = json.load(f)
+                            for elemento in datos_json:
+                                if "message" in elemento:
+                                    mensajes_test.append(elemento["message"])
+                                    num_mensajes_test += 1
+        # Guardar los mensajes en dos archivos separados
+        with open(salida_train, "w", encoding="utf-8") as f_train:
+            json.dump(mensajes_train, f_train, ensure_ascii=False, indent=2)
+
+        with open(salida_test, "w", encoding="utf-8") as f_test:
+            json.dump(mensajes_test, f_test, ensure_ascii=False, indent=2)
+
+        print(f"Total mensajes en train: {num_mensajes_train}")
+        print(f"Total mensajes en test: {num_mensajes_test}")
+    """
 #--------------------------------------------------------------------------------------
 #Metodos de preprocesamiento de texto
 
@@ -104,21 +158,34 @@ def limpiar_texto(texto):
 
     return tokens
 
+
 def preprocesar_datos(tipo_vectorizacion):
-        # Cargar mensajes
+    # Cargar mensajes
     with open("train.json", "r", encoding="utf-8") as f:
-        train_msgs = json.load(f)
+        train_data = json.load(f)
 
     with open("test.json", "r", encoding="utf-8") as f:
-        test_msgs = json.load(f)
-    if tipo_vectorizacion == "RoBERTuito":
-        # Preprocesar
-        train_pre = [preprocess_tweet(m) for m in train_msgs]
-        test_pre = [preprocess_tweet(m) for m in test_msgs]
+        test_data = json.load(f)
+
+    # Preprocesar manteniendo agrupación por persona
+    if tipo_vectorizacion == "robertuito":
+        train_pre = [
+            {"persona": persona["persona"], "mensajes": [preprocess_tweet(m) for m in persona["mensajes"]]}
+            for persona in train_data
+        ]
+        test_pre = [
+            {"persona": persona["persona"], "mensajes": [preprocess_tweet(m) for m in persona["mensajes"]]}
+            for persona in test_data
+        ]
     elif tipo_vectorizacion == "TfidF":
-        # Preprocesar
-        train_pre = [limpiar_texto(m) for m in train_msgs]
-        test_pre = [limpiar_texto(m) for m in test_msgs]
+        train_pre = [
+            {"persona": persona["persona"], "mensajes": [limpiar_texto(m) for m in persona["mensajes"]]}
+            for persona in train_data
+        ]
+        test_pre = [
+            {"persona": persona["persona"], "mensajes": [limpiar_texto(m) for m in persona["mensajes"]]}
+            for persona in test_data
+        ]
 
     # Guardar
     with open("train_preprocesado.json", "w", encoding="utf-8") as f:
@@ -132,16 +199,28 @@ def preprocesar_datos(tipo_vectorizacion):
 #--------------------------------------------------------------------------------------
 
 def vectorizar_TfidF():
-    # Cargar datos preprocesados (listas de tokens)
+    # Cargar datos preprocesados (lista de dicts {"persona","mensajes"})
     with open("train_preprocesado.json", "r", encoding="utf-8") as f:
         train_pre = json.load(f)
 
     with open("test_preprocesado.json", "r", encoding="utf-8") as f:
         test_pre = json.load(f)
 
-    # Unir tokens para usar TfidfVectorizer (se espera texto, no listas)
-    train_texts = [" ".join(tokens) for tokens in train_pre]
-    test_texts = [" ".join(tokens) for tokens in test_pre]
+    # Reconstruir texto por persona:
+    # cada persona["mensajes"] es una lista de mensajes; cada mensaje puede ser:
+    #  - lista de tokens (desde limpiar_texto)
+    #  - string (si vino de otro preprocesamiento)
+    def persona_a_texto(persona):
+        textos = []
+        for m in persona.get("mensajes", []):
+            if isinstance(m, list):
+                textos.append(" ".join(m))
+            else:
+                textos.append(str(m))
+        return " ".join(textos)
+
+    train_texts = [persona_a_texto(p) for p in train_pre]
+    test_texts = [persona_a_texto(p) for p in test_pre]
 
     # Inicializar vectorizador TF-IDF
     vectorizer = TfidfVectorizer(max_features=8000)  # puedes ajustar este número
@@ -160,54 +239,54 @@ def vectorizar_TfidF():
     print(f"Vectorización completada: {X_train.shape[0]} train docs, {X_train.shape[1]} features")
 
 
-
-def generar_embeddings_robertuito(model_name="pysentimiento/robertuito-base-uncased", max_length=128):
-    # Cargar datos preprocesados (tokens) o textos limpios
+def generar_embeddings_robertuito(
+    model_name="pysentimiento/robertuito-base-uncased",
+    max_length=128,
+    batch_size=32
+):
+    # Cargar datos
     with open("train_preprocesado.json", "r", encoding="utf-8") as f:
         train_pre = json.load(f)
     with open("test_preprocesado.json", "r", encoding="utf-8") as f:
         test_pre = json.load(f)
 
-    # Reconstruir textos a partir de tokens
-    train_texts = [" ".join(tokens) for tokens in train_pre]
-    test_texts = [" ".join(tokens) for tokens in test_pre]
+    train_texts = [" ".join(persona["mensajes"]) for persona in train_pre]
+    test_texts = [" ".join(persona["mensajes"]) for persona in test_pre]
 
-    # Cargar modelo y tokenizador RoBERTuito
+
+    # Modelo y tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
-
-    # Para que trabaje con GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    model.eval()
 
-    def texto_a_embedding(texto):
-        # aplicar preprocesamiento especial de tweet
-        texto_proc = preprocess_tweet(texto)
-        # tokenizar
-        enc = tokenizer(
-            texto_proc,
-            truncation=True,
-            padding="max_length",
-            max_length=max_length,
-            return_tensors="pt",
-        )
-        # hacer pase hacia adelante
-        with torch.no_grad():
-            out = model(**enc)
-        # Extraer embedding: por ejemplo, usar la media de los tokens (pooling)
-        last_hidden = out.last_hidden_state  # [batch_size, seq_len, hidden_dim]
-        # Promediar tokens (excluyendo padding) — simple estrategia
-        mask = enc["attention_mask"].unsqueeze(-1)  # para propagar la máscara
-        summed = torch.sum(last_hidden * mask, dim=1)
-        counts = torch.sum(mask, dim=1)
-        embedding = summed / counts  # forma: [hidden_dim]
-        return embedding.cpu().numpy()
+    def textos_a_embeddings(textos):
+        embeddings = []
+        for i in tqdm(range(0, len(textos), batch_size)):
+            batch_texts = textos[i : i + batch_size]
+            enc = tokenizer(
+                batch_texts,
+                truncation=True,
+                padding="max_length",
+                max_length=max_length,
+                return_tensors="pt",
+            ).to(device)
 
-    # Generar embeddings para train y test
-    X_train_emb = np.array([texto_a_embedding(t) for t in train_texts])
-    X_test_emb = np.array([texto_a_embedding(t) for t in test_texts])
+            with torch.no_grad():
+                out = model(**enc)
 
-    # Guardar
+            last_hidden = out.last_hidden_state
+            mask = enc["attention_mask"].unsqueeze(-1).float()
+            summed = torch.sum(last_hidden * mask, dim=1)
+            counts = torch.sum(mask, dim=1)
+            batch_emb = (summed / counts).cpu().numpy()
+            embeddings.append(batch_emb)
+        return np.vstack(embeddings)
+
+    X_train_emb = textos_a_embeddings(train_texts)
+    X_test_emb = textos_a_embeddings(test_texts)
+
     np.save("X_train_robertuito.npy", X_train_emb)
     np.save("X_test_robertuito.npy", X_test_emb)
 
@@ -216,25 +295,26 @@ def generar_embeddings_robertuito(model_name="pysentimiento/robertuito-base-unca
 def vectorizar_datos(tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         vectorizar_TfidF()
-    elif tipo_vectorizacion == "RoBERTuito":
+    elif tipo_vectorizacion == "robertuito":
+    #elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
         generar_embeddings_robertuito()
-    else:
+    elif not tipo_vectorizacion in ["TfidF", "robertuito"]:
         raise ValueError("Tipo de vectorización no soportado.") 
     print(f"Vectorización con {tipo_vectorizacion} completada.")
 
 #--------------------------------------------------------------------------------------
 
-def PCA_reduccion_dimensionalidad(n_componentes=[50,100], tipo_vectorizacion="TfidF"):
+def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40]):
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data = np.load("X_test_tfidf.npy")
-    elif tipo_vectorizacion == "RoBERTuito":
+    elif tipo_vectorizacion == "robertuito":
         X_train_data = np.load("X_train_robertuito.npy")
         X_test_data = np.load("X_test_robertuito.npy")
     else:
         raise ValueError("Tipo de vectorización no soportado.")
-
-        # Inicialización para guardar el mejor PCA
+    print(f"Reducción PCA sobre {tipo_vectorizacion}... ({X_train_data.shape[0]} muestras, {X_train_data.shape[1]} features)")
+    # Inicialización para guardar el mejor PCA
     mejor_score = -np.inf
     mejor_X_train = None
     mejor_X_test = None
@@ -244,13 +324,14 @@ def PCA_reduccion_dimensionalidad(n_componentes=[50,100], tipo_vectorizacion="Tf
 
     # Iterar sobre distintos números de componentes
     for n in n_componentes:
-        print(n)
         pca = PCA(n_components=n)
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
-
+        from sklearn.preprocessing import normalize
+        X_train_norm = normalize(X_train_reducido)
+        
         # Clustering DBSCAN manual
-        etiquetas = dbscan(X_train_reducido, eps=0.08, min_pts=5)
+        etiquetas = dbscan(X_train_norm, eps=0.5, min_pts=7)
         print(etiquetas)
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
@@ -276,22 +357,29 @@ def PCA_reduccion_dimensionalidad(n_componentes=[50,100], tipo_vectorizacion="Tf
             mejor_n = n
 
     # Guardar resultados
+    if mejor_X_train is None:
+        print("No se encontraron clusters válidos para ningún PCA. No se guardará archivo PCA.")
+        return
+    mejor_X_train = np.array(mejor_X_train, dtype=float)
     np.save("X_train_pca_best.npy", mejor_X_train)
+    mejor_X_test = np.array(mejor_X_test, dtype=float)
     np.save("X_test_pca_best.npy", mejor_X_test)
     joblib.dump(mejor_pca, "modelo_pca_best.pkl")
     print(f"🏆 Mejor PCA: {mejor_n} componentes con score combinado={mejor_score:.3f}")
 
 #--------------------------------------------------------------------------------------
 
-def distancia(p1, p2):
-    """Calcula distancia euclidiana entre dos puntos"""
-    return math.sqrt(sum((a - b)**2 for a, b in zip(p1, p2)))
+
+def distancia_coseno(p1, p2):
+    """Distancia coseno entre dos vectores"""
+    cos_sim = np.dot(p1, p2) / (np.linalg.norm(p1) * np.linalg.norm(p2))
+    return 1 - cos_sim
 
 def region_query(datos, punto_idx, eps):
     """Encuentra todos los vecinos dentro de eps"""
     punto = datos[punto_idx]
     # calcular distancias a todos los puntos de manera vectorizada
-    distancias = np.linalg.norm(datos - punto, axis=1)
+    distancias = np.array([distancia_coseno(punto, x) for x in datos])
     # devolver índices de vecinos dentro de eps
     vecinos = np.where(distancias <= eps)[0].tolist()
     return vecinos
@@ -322,7 +410,6 @@ def dbscan(datos, eps, min_pts):
     labels = [0] * len(datos)  # 0 = no visitado, -1 = ruido, >0 = cluster_id
 
     for i in range(len(datos)):
-        print(i)
         if labels[i] != 0:
             continue
         vecinos = region_query(datos, i, eps)
@@ -393,7 +480,7 @@ def visualizar_clusters(tipo_vectorizacion="TfidF"):
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    tipo_vectorizacion ="RoBERTuito" # "TfidF" o "RoBERTuito"
+    tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
     agrupar_train_test()
     preprocesar_datos(tipo_vectorizacion)
 
@@ -402,5 +489,5 @@ if __name__ == "__main__":
     PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[50,100])
 
     # Clustering manual DBSCAN
-    clustering_DBSCAN(tipo_vectorizacion, eps=0.08, min_pts=5)
+    #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
 
