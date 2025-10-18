@@ -18,6 +18,7 @@ import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from collections import defaultdict
+from sklearn.preprocessing import normalize
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -80,55 +81,6 @@ def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", 
 
     print(f"Total personas en train: {len(train_list)}")
     print(f"Total personas en test: {len(test_list)}")
-    """ 
-        mensajes_train = []
-        mensajes_test = []
-        num_mensajes_test = 0
-        num_mensajes_train = 0
-        # Recorremos las categorías (Ej: Ansiedad, Depresion, etc.)
-        for categoria in os.listdir(ruta_base):
-            ruta_categoria = os.path.join(ruta_base, categoria)
-            if not os.path.isdir(ruta_categoria):
-                continue
-
-            # --- TRAIN ---
-            ruta_train = os.path.join(ruta_categoria, "Train")
-            if os.path.exists(ruta_train):
-                print(f"Procesando Train en {ruta_train}")
-                for archivo in os.listdir(ruta_train):
-                    if archivo.endswith(".json"):
-                        ruta_archivo = os.path.join(ruta_train, archivo)
-                        with open(ruta_archivo, "r", encoding="utf-8") as f:
-                            datos_json = json.load(f)
-                            for elemento in datos_json:
-
-                                
-                                if "message" in elemento:
-                                    mensajes_train.append(elemento["message"])
-                                    num_mensajes_train += 1
-            # --- TEST ---
-            ruta_test = os.path.join(ruta_categoria, "Test")
-            if os.path.exists(ruta_test):
-                print(f"Procesando test en {ruta_test}")
-                for archivo in os.listdir(ruta_test):
-                    if archivo.endswith(".json"):
-                        ruta_archivo = os.path.join(ruta_test, archivo)
-                        with open(ruta_archivo, "r", encoding="utf-8") as f:
-                            datos_json = json.load(f)
-                            for elemento in datos_json:
-                                if "message" in elemento:
-                                    mensajes_test.append(elemento["message"])
-                                    num_mensajes_test += 1
-        # Guardar los mensajes en dos archivos separados
-        with open(salida_train, "w", encoding="utf-8") as f_train:
-            json.dump(mensajes_train, f_train, ensure_ascii=False, indent=2)
-
-        with open(salida_test, "w", encoding="utf-8") as f_test:
-            json.dump(mensajes_test, f_test, ensure_ascii=False, indent=2)
-
-        print(f"Total mensajes en train: {num_mensajes_train}")
-        print(f"Total mensajes en test: {num_mensajes_test}")
-    """
 #--------------------------------------------------------------------------------------
 #Metodos de preprocesamiento de texto
 
@@ -295,8 +247,7 @@ def generar_embeddings_robertuito(
 def vectorizar_datos(tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         vectorizar_TfidF()
-    elif tipo_vectorizacion == "robertuito":
-    #elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
+    elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
         generar_embeddings_robertuito()
     elif not tipo_vectorizacion in ["TfidF", "robertuito"]:
         raise ValueError("Tipo de vectorización no soportado.") 
@@ -304,7 +255,7 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 #--------------------------------------------------------------------------------------
 
-def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40]):
+def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100]):
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data = np.load("X_test_tfidf.npy")
@@ -327,45 +278,52 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40]):
         pca = PCA(n_components=n)
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
-        from sklearn.preprocessing import normalize
         X_train_norm = normalize(X_train_reducido)
         
         # Clustering DBSCAN manual
-        etiquetas = dbscan(X_train_norm, eps=0.5, min_pts=7)
+        etiquetas = dbscan(X_train_norm, eps=0.5, min_pts=3)
         print(etiquetas)
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
-        if np.sum(mask) <= 1:
-            print(f"PCA={n}: No se formaron clusters válidos.")
+        etiquetas_filtradas = np.array(etiquetas)[mask]
+        num_clusters_validos = len(set(etiquetas_filtradas))
+        if np.sum(mask) <= 1 or num_clusters_validos < 2:
+            print(f"PCA={n}: No se formaron suficientes clusters válidos ({num_clusters_validos} encontrados).")
             continue
+        else:
+            # Métricas
+            sil_score = silhouette_score(X_train_reducido[mask], etiquetas_filtradas, metric='cosine')
+            ch_score = calinski_harabasz_score(X_train_reducido[mask], etiquetas_filtradas)
 
-        # Métricas
-        sil_score = silhouette_score(X_train_reducido[mask], np.array(etiquetas)[mask])
-        ch_score = calinski_harabasz_score(X_train_reducido[mask], np.array(etiquetas)[mask])
+            # Combinación simple de métricas
+            score_combinado = (sil_score + ch_score / 1000) / 2  # normalizamos CH para escala similar
 
-        # Combinación simple de métricas
-        score_combinado = (sil_score + ch_score / 1000) / 2  # normalizamos CH para escala similar
+            print(f"PCA={n}: Silhouette={sil_score:.3f}, CH={ch_score:.1f}, combinado={score_combinado:.3f}")
 
-        print(f"PCA={n}: Silhouette={sil_score:.3f}, CH={ch_score:.1f}, combinado={score_combinado:.3f}")
-
-        # Guardar el mejor
-        if score_combinado > mejor_score:
-            mejor_score = score_combinado
-            mejor_X_train = X_train_reducido
-            mejor_X_test = X_test_reducido
-            mejor_pca = pca
-            mejor_n = n
+            # Guardar el mejor
+            if score_combinado > mejor_score:
+                mejor_score = score_combinado
+                mejor_X_train = X_train_reducido
+                mejor_X_test = X_test_reducido
+                mejor_pca = pca
+                mejor_n = n
 
     # Guardar resultados
     if mejor_X_train is None:
         print("No se encontraron clusters válidos para ningún PCA. No se guardará archivo PCA.")
         return
+    else:
+        X_train_norm = normalize(mejor_X_train)
+        etiquetas_finales = dbscan(X_train_norm, eps=0.5, min_pts=5)
+        visualizar_clusters_directo(mejor_X_train, etiquetas_finales, f"Clusters finales ({tipo_vectorizacion})")
+
     mejor_X_train = np.array(mejor_X_train, dtype=float)
     np.save("X_train_pca_best.npy", mejor_X_train)
     mejor_X_test = np.array(mejor_X_test, dtype=float)
     np.save("X_test_pca_best.npy", mejor_X_test)
     joblib.dump(mejor_pca, "modelo_pca_best.pkl")
     print(f"🏆 Mejor PCA: {mejor_n} componentes con score combinado={mejor_score:.3f}")
+    
 
 #--------------------------------------------------------------------------------------
 
@@ -422,7 +380,7 @@ def dbscan(datos, eps, min_pts):
     return labels
 
 
-def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=5):
+def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=3):
     """
     Aplica DBSCAN sobre los vectores reducidos (PCA) de la representación elegida.
     """
@@ -469,13 +427,30 @@ def nueva_instancia_a_clusterizar(instancia):
 
 #--------------------------------------------------------------------------------------
 
-def visualizar_clusters(tipo_vectorizacion="TfidF"):
-    X = np.load("X_train_pca_best.npy")
-    labels = np.load(f"labels_{tipo_vectorizacion}_dbscan.npy")
+def visualizar_clusters_directo(X, labels, titulo="Clusters DBSCAN"):
+    import matplotlib.cm as cm
 
-    plt.scatter(X[:,0], X[:,1], c=labels, cmap='tab10', s=10)
-    plt.title(f"Clusters DBSCAN - {tipo_vectorizacion}")
+    X = np.array(X)
+    labels = np.array(labels)
+    unique_labels = set(labels)
+    num_clusters = len([l for l in unique_labels if l != -1])
+    colors = cm.tab10(np.linspace(0, 1, max(num_clusters, 1)))
+
+    plt.figure(figsize=(10, 7))
+    for k, col in zip(sorted(unique_labels), colors):
+        if k == -1:
+            col = (0.5, 0.5, 0.5, 0.5)
+        xy = X[labels == k]
+        plt.scatter(xy[:, 0], xy[:, 1], s=25, c=[col], label=f"Cluster {k}" if k != -1 else "Ruido", alpha=0.7)
+
+    plt.title(f"{titulo} (Clusters: {num_clusters}, Ruido: {(labels == -1).sum()})")
+    plt.xlabel("PCA 1")
+    plt.ylabel("PCA 2")
+    plt.legend(loc="best", fontsize='small')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.tight_layout()
     plt.show()
+
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
@@ -486,7 +461,7 @@ if __name__ == "__main__":
 
     # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[50,100])
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200])
 
     # Clustering manual DBSCAN
     #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
