@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.preprocessing import normalize
+import matplotlib.cm as cm
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -254,8 +255,11 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
     print(f"Vectorización con {tipo_vectorizacion} completada.")
 
 #--------------------------------------------------------------------------------------
+# -------- Distancia coseno (vectorizado) ----------
 
-def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100]):
+
+
+def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100],eps=0.5, min_pts=3,metric="coseno"):
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data = np.load("X_test_tfidf.npy")
@@ -281,8 +285,19 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         X_train_norm = normalize(X_train_reducido)
         
         # Clustering DBSCAN manual
-        etiquetas = dbscan(X_train_norm, eps=0.5, min_pts=3)
+        print("=== DEBUG X_train_norm ===")
+        print("type:", type(X_train_norm))
+        try:
+            print("shape:", X_train_norm.shape)
+        except Exception as e:
+            print("shape error:", e)
+        print("dtype:", getattr(X_train_norm, "dtype", "sin dtype"))
+        print("primer elemento (type):", type(X_train_norm[0]))
+        print("primer elemento:", X_train_norm[0])
+        
+        etiquetas = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
         print(etiquetas)
+        visualizar_clusters_por_etiqueta(X_train_reducido, etiquetas, f"Clusters PCA={n} (Train)")
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
         etiquetas_filtradas = np.array(etiquetas)[mask]
@@ -314,8 +329,9 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         return
     else:
         X_train_norm = normalize(mejor_X_train)
-        etiquetas_finales = dbscan(X_train_norm, eps=0.5, min_pts=5)
+        etiquetas_finales = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
         visualizar_clusters_directo(mejor_X_train, etiquetas_finales, f"Clusters finales ({tipo_vectorizacion})")
+
 
     mejor_X_train = np.array(mejor_X_train, dtype=float)
     np.save("X_train_pca_best.npy", mejor_X_train)
@@ -328,21 +344,59 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
 #--------------------------------------------------------------------------------------
 
 
-def distancia_coseno(p1, p2):
-    """Distancia coseno entre dos vectores"""
+""" def distancia_coseno(p1, p2):
+    #Distancia coseno entre dos vectores
     cos_sim = np.dot(p1, p2) / (np.linalg.norm(p1) * np.linalg.norm(p2))
     return 1 - cos_sim
+"""
+def distancia_coseno_vecs(M, v):
+    """
+    M: matriz (n_samples, n_features)
+    v: vector (n_features,)
+    Devuelve array de distancias coseno 1 - cos_sim entre v y cada fila de M.
+    """
+    # asumimos que M y v no son nulos
+    v_norm = np.linalg.norm(v)
+    M_norms = np.linalg.norm(M, axis=1)
+    # prevención de división por 0
+    denom = M_norms * (v_norm if v_norm != 0 else 1e-12)
+    # producto punto
+    dots = M.dot(v)
+    cos_sim = dots / (denom + 1e-12)
+    # clip para estabilidad numérica
+    cos_sim = np.clip(cos_sim, -1.0, 1.0)
+    return 1.0 - cos_sim
 
-def region_query(datos, punto_idx, eps):
-    """Encuentra todos los vecinos dentro de eps"""
+def distancia_euclidiana_vecs(M, v):
+    """
+    M: matriz (n_samples, n_features)
+    v: vector (n_features,)
+    Devuelve array de distancias euclidianas entre v y cada fila de M.
+    """
+    M = np.asarray(M, dtype=float)
+    v = np.asarray(v, dtype=float)
+    # Diferencia y norma
+    diffs = M - v
+    distancias = np.linalg.norm(diffs, axis=1)
+    return distancias
+
+def region_query(datos, punto_idx, eps,metric):
+    """
+    Encuentra todos los vecinos dentro de eps (distancia coseno).
+    datos: np.ndarray 2D
+    """
+    # asegurar ndarray 2D float
+    datos = np.asarray(datos, dtype=float)
     punto = datos[punto_idx]
-    # calcular distancias a todos los puntos de manera vectorizada
-    distancias = np.array([distancia_coseno(punto, x) for x in datos])
-    # devolver índices de vecinos dentro de eps
+    # vectorizado
+    if metric == "coseno":
+        distancias = distancia_coseno_vecs(datos, punto)
+    elif metric == "euclidiana":
+        distancias = distancia_euclidiana_vecs(datos, punto)
     vecinos = np.where(distancias <= eps)[0].tolist()
     return vecinos
 
-def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts):
+def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts,metric):
     """Expande un cluster agregando puntos densos"""
     labels[punto_idx] = cluster_id
     i = 0
@@ -352,30 +406,31 @@ def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts):
             labels[vecino_idx] = cluster_id  # De ruido a cluster
         elif labels[vecino_idx] == 0:
             labels[vecino_idx] = cluster_id
-            nuevos_vecinos = region_query(datos, vecino_idx, eps)
+            nuevos_vecinos = region_query(datos, vecino_idx, eps,metric=metric)
             if len(nuevos_vecinos) >= min_pts:
                 vecinos.extend(nuevos_vecinos)
         i += 1
 
-def dbscan(datos, eps, min_pts):
+def dbscan(datos, eps, min_pts,metric):
     """
-    datos: lista de puntos [[x1, y1], [x2, y2], ...]
+    datos: lista de puntos o np.ndarray (n_samples, n_features)
     eps: radio de vecindad
     min_pts: mínimo de puntos para formar cluster
     """
-    datos = np.array(datos) # TODO: no se si esto es necesario
+    datos = np.asarray(datos, dtype=float)
+    n = len(datos)
+    labels = [0] * n  # 0 = no visitado, -1 = ruido, >0 = cluster_id
     cluster_id = 0
-    labels = [0] * len(datos)  # 0 = no visitado, -1 = ruido, >0 = cluster_id
 
-    for i in range(len(datos)):
+    for i in range(n):
         if labels[i] != 0:
             continue
-        vecinos = region_query(datos, i, eps)
+        vecinos = region_query(datos, i, eps,metric=metric)
         if len(vecinos) < min_pts:
-            labels[i] = -1  # Ruido
+            labels[i] = -1  # ruido
         else:
             cluster_id += 1
-            expand_cluster(datos, labels, i, vecinos, cluster_id, eps, min_pts)
+            expand_cluster(datos, labels, i, vecinos, cluster_id, eps, min_pts,metric=metric)
 
     return labels
 
@@ -393,7 +448,7 @@ def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=3):
     datos_lista = X_train.tolist()
 
     # Aplicar DBSCAN
-    etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts)
+    etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts,metric="coseno")
 
     # Guardar etiquetas en un archivo
     np.save(f"labels_{tipo_vectorizacion}_dbscan.npy", etiquetas)
@@ -404,22 +459,6 @@ def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=3):
     print(f"Puntos ruido: {etiquetas.count(-1)}")
 #--------------------------------------------------------------------------------------
 
-def entrenar_modelo():
-    # Aquí iría la lógica de entrenamiento del modelo
-    pass
-#--------------------------------------------------------------------------------------
-
-def evaluar_modelo():
-    # Aquí iría la lógica de evaluación del modelo
-    pass
-#--------------------------------------------------------------------------------------
-
-def guardar_modelo():
-    # Aquí iría la lógica de guardado del modelo entrenado
-    pass
-def cargar_modelo():
-    # Aquí iría la lógica de carga del modelo entrenado
-    pass
 #--------------------------------------------------------------------------------------
 def nueva_instancia_a_clusterizar(instancia):
     # Aquí iría la lógica para predecir con nuevos datos
@@ -451,17 +490,59 @@ def visualizar_clusters_directo(X, labels, titulo="Clusters DBSCAN"):
     plt.tight_layout()
     plt.show()
 
+def visualizar_clusters_por_etiqueta(X, etiquetas, titulo="Clusters DBSCAN"):
+    """
+    X: np.ndarray (n_samples, n_features) -> los datos originales o reducidos
+    etiquetas: lista o array de etiquetas DBSCAN
+    """
+    X = np.array(X)
+    etiquetas = np.array(etiquetas)
+
+    # Reducimos a 2D para poder visualizar
+    if X.shape[1] > 2:
+        X_2d = PCA(n_components=2).fit_transform(X)
+    else:
+        X_2d = X
+
+    # Colores por cluster
+    unique_labels = sorted(set(etiquetas))
+    num_clusters = len([l for l in unique_labels if l != -1])
+    colors = cm.tab10(np.linspace(0, 1, max(num_clusters, 1)))
+
+    plt.figure(figsize=(10, 7))
+    for i, label in enumerate(unique_labels):
+        if label == -1:
+            # Ruido en gris semitransparente
+            col = (0.5, 0.5, 0.5, 0.5)
+        else:
+            col = colors[i % len(colors)]
+        mask = etiquetas == label
+        xy = X_2d[mask]
+        plt.scatter(xy[:, 0], xy[:, 1], s=50, c=[col], label=f"Cluster {label}" if label != -1 else "Ruido", alpha=0.7)
+
+    plt.title(f"{titulo} (Clusters: {num_clusters}, Ruido: {(etiquetas == -1).sum()})")
+    plt.xlabel("PCA 1")
+    plt.ylabel("PCA 2")
+    plt.legend(loc="best", fontsize='small')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.tight_layout()
+    plt.show()
+
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
+    eps=0.55
+    min_pts=5
+    metrica="coseno"  # "coseno" o "euclidiana"
+    
     agrupar_train_test()
     preprocesar_datos(tipo_vectorizacion)
 
     # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200])
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
 
     # Clustering manual DBSCAN
     #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
