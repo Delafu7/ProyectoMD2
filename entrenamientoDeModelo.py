@@ -8,7 +8,7 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
-from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -558,6 +558,42 @@ def visualizar_clusters_por_etiqueta(X, etiquetas, titulo="Clusters DBSCAN"):
     plt.tight_layout()
     plt.show()
 
+
+def calculoDeIndices(modelo, labels_train=None, labels_test=None):
+    # Carga de datos PCA desde archivos .npy
+    X_train_pca = np.load("X_train_pca_best.npy")
+    X_test_pca = np.load("X_test_pca_best.npy")
+
+    #  Métricas en TRAIN
+    silhouette_train = silhouette_score(X_train_pca, labels_train)
+    davies_train = davies_bouldin_score(X_train_pca, labels_train)
+    calinski_train = calinski_harabasz_score(X_train_pca, labels_train)
+
+    #  Métricas en TEST
+    if labels_test is None:
+        if hasattr(modelo, "predict"):
+            labels_test = modelo.predict(X_test_pca)
+        else:
+            labels_test = modelo.fit_predict(X_test_pca)
+
+    silhouette_test = silhouette_score(X_test_pca, labels_test)
+    davies_test = davies_bouldin_score(X_test_pca, labels_test)
+    calinski_test = calinski_harabasz_score(X_test_pca, labels_test)
+
+    # Devolver resultados como diccionario
+    resultados = {
+        "silhouette_train": silhouette_train,
+        "davies_train": davies_train,
+        "calinski_train": calinski_train,
+        "silhouette_test": silhouette_test,
+        "davies_test": davies_test,
+        "calinski_test": calinski_test
+    }
+    print(f"Silhouette score: {silhouette_test}"
+          f" davies score: {davies_test}"
+          f" calinski score: {calinski_test}")
+
+    return resultados
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
