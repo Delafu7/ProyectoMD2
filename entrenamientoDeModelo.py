@@ -202,6 +202,9 @@ def generar_embeddings_robertuito(
     with open("test_preprocesado.json", "r", encoding="utf-8") as f:
         test_pre = json.load(f)
 
+    train_texts = [" ".join(persona["mensajes"]) for persona in train_pre]
+    test_texts = [" ".join(persona["mensajes"]) for persona in test_pre]
+
     # Modelo y tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
@@ -209,64 +212,39 @@ def generar_embeddings_robertuito(
     model.to(device)
     model.eval()
 
-    def texto_a_embedding(texto):
-        """Embedding de un solo texto"""
-        enc = tokenizer(
-            texto,
-            truncation=True,
-            padding="max_length",
-            max_length=max_length,
-            return_tensors="pt"
-        ).to(device)
-        with torch.no_grad():
-            out = model(**enc)
-        last_hidden = out.last_hidden_state
-        mask = enc["attention_mask"].unsqueeze(-1).float()
-        summed = torch.sum(last_hidden * mask, dim=1)
-        counts = torch.sum(mask, dim=1)
-        emb = (summed / counts).cpu().numpy()
-        return emb[0]
-
-    def mensajes_a_embedding(mensajes):
-        """Promedia embeddings de todos los mensajes de una persona"""
+    def textos_a_embeddings(textos):
         embeddings = []
-        for i in range(0, len(mensajes), batch_size):
-            batch = mensajes[i:i+batch_size]
-            # Procesar lote de mensajes a la vez para acelerar
+        for i in tqdm(range(0, len(textos), batch_size), desc="Progreso", ncols=80):
+            batch_texts = textos[i : i + batch_size]
             enc = tokenizer(
-                batch,
+                batch_texts,
                 truncation=True,
                 padding="max_length",
                 max_length=max_length,
-                return_tensors="pt"
+                return_tensors="pt",
             ).to(device)
+
             with torch.no_grad():
                 out = model(**enc)
+
             last_hidden = out.last_hidden_state
             mask = enc["attention_mask"].unsqueeze(-1).float()
             summed = torch.sum(last_hidden * mask, dim=1)
             counts = torch.sum(mask, dim=1)
             batch_emb = (summed / counts).cpu().numpy()
-            embeddings.extend(batch_emb)
-        return np.mean(embeddings, axis=0)
+            embeddings.append(batch_emb)
 
-    # Barra de progreso global (Personas)
-    print("\n🔹 Generando embeddings para TRAIN...")
-    X_train_emb = np.array([
-        mensajes_a_embedding(p["mensajes"]) 
-        for p in tqdm(train_pre, desc="Progreso (train)", ncols=80)
-    ])
+        return np.vstack(embeddings)
 
-    print("\n🔹 Generando embeddings para TEST...")
-    X_test_emb = np.array([
-        mensajes_a_embedding(p["mensajes"]) 
-        for p in tqdm(test_pre, desc="Progreso (test)", ncols=80)
-    ])
+    # Generar embeddings
+    X_train_emb = textos_a_embeddings(train_texts)
+    X_test_emb = textos_a_embeddings(test_texts)
 
-    # Guardar resultados
+    # Guardar
     np.save("X_train_robertuito.npy", X_train_emb)
     np.save("X_test_robertuito.npy", X_test_emb)
-    print("\n✅ Embeddings con RoBERTuito (promedio por mensaje) generados:")
+
+    print("✅ Embeddings con RoBERTuito generados:")
     print("   Train:", X_train_emb.shape)
     print("   Test :", X_test_emb.shape)
     
