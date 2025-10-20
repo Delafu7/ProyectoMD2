@@ -191,7 +191,6 @@ def vectorizar_TfidF():
 
     print(f"Vectorización completada: {X_train.shape[0]} train docs, {X_train.shape[1]} features")
 
-
 def generar_embeddings_robertuito(
     model_name="pysentimiento/robertuito-base-uncased",
     max_length=128,
@@ -203,10 +202,6 @@ def generar_embeddings_robertuito(
     with open("test_preprocesado.json", "r", encoding="utf-8") as f:
         test_pre = json.load(f)
 
-    train_texts = [" ".join(persona["mensajes"]) for persona in train_pre]
-    test_texts = [" ".join(persona["mensajes"]) for persona in test_pre]
-
-
     # Modelo y tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
@@ -214,41 +209,72 @@ def generar_embeddings_robertuito(
     model.to(device)
     model.eval()
 
-    def textos_a_embeddings(textos):
+    def texto_a_embedding(texto):
+        """Embedding de un solo texto"""
+        enc = tokenizer(
+            texto,
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            return_tensors="pt"
+        ).to(device)
+        with torch.no_grad():
+            out = model(**enc)
+        last_hidden = out.last_hidden_state
+        mask = enc["attention_mask"].unsqueeze(-1).float()
+        summed = torch.sum(last_hidden * mask, dim=1)
+        counts = torch.sum(mask, dim=1)
+        emb = (summed / counts).cpu().numpy()
+        return emb[0]
+
+    def mensajes_a_embedding(mensajes):
+        """Promedia embeddings de todos los mensajes de una persona"""
         embeddings = []
-        for i in tqdm(range(0, len(textos), batch_size)):
-            batch_texts = textos[i : i + batch_size]
+        for i in range(0, len(mensajes), batch_size):
+            batch = mensajes[i:i+batch_size]
+            # Procesar lote de mensajes a la vez para acelerar
             enc = tokenizer(
-                batch_texts,
+                batch,
                 truncation=True,
                 padding="max_length",
                 max_length=max_length,
-                return_tensors="pt",
+                return_tensors="pt"
             ).to(device)
-
             with torch.no_grad():
                 out = model(**enc)
-
             last_hidden = out.last_hidden_state
             mask = enc["attention_mask"].unsqueeze(-1).float()
             summed = torch.sum(last_hidden * mask, dim=1)
             counts = torch.sum(mask, dim=1)
             batch_emb = (summed / counts).cpu().numpy()
-            embeddings.append(batch_emb)
-        return np.vstack(embeddings)
+            embeddings.extend(batch_emb)
+        return np.mean(embeddings, axis=0)
 
-    X_train_emb = textos_a_embeddings(train_texts)
-    X_test_emb = textos_a_embeddings(test_texts)
+    # Barra de progreso global (Personas)
+    print("\n🔹 Generando embeddings para TRAIN...")
+    X_train_emb = np.array([
+        mensajes_a_embedding(p["mensajes"]) 
+        for p in tqdm(train_pre, desc="Progreso (train)", ncols=80)
+    ])
 
+    print("\n🔹 Generando embeddings para TEST...")
+    X_test_emb = np.array([
+        mensajes_a_embedding(p["mensajes"]) 
+        for p in tqdm(test_pre, desc="Progreso (test)", ncols=80)
+    ])
+
+    # Guardar resultados
     np.save("X_train_robertuito.npy", X_train_emb)
     np.save("X_test_robertuito.npy", X_test_emb)
-
-    print("Embeddings con RoBERTuito generados:", X_train_emb.shape, X_test_emb.shape)
-
+    print("\n✅ Embeddings con RoBERTuito (promedio por mensaje) generados:")
+    print("   Train:", X_train_emb.shape)
+    print("   Test :", X_test_emb.shape)
+    
 def vectorizar_datos(tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         vectorizar_TfidF()
-    elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
+    #elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
+    elif tipo_vectorizacion == "robertuito":
         generar_embeddings_robertuito()
     elif not tipo_vectorizacion in ["TfidF", "robertuito"]:
         raise ValueError("Tipo de vectorización no soportado.") 
@@ -256,6 +282,35 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 #--------------------------------------------------------------------------------------
 # -------- Distancia coseno (vectorizado) ----------
+def estimar_eps(X_norm, min_pts=5, plot=True):
+    """
+    Estima un buen valor de eps para DBSCAN usando la distancia al k-ésimo vecino.
+    
+    X_norm: np.ndarray (normalizado, n_samples x n_features)
+    min_pts: número de vecinos a considerar
+    plot: si True, grafica la curva para elegir eps visualmente
+    """
+    from sklearn.neighbors import NearestNeighbors
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    neighbors = NearestNeighbors(n_neighbors=min_pts, metric="cosine").fit(X_norm)
+    distances, _ = neighbors.kneighbors(X_norm)
+    distances_k = np.sort(distances[:, min_pts-1])
+
+    if plot:
+        plt.figure(figsize=(8,4))
+        plt.plot(distances_k)
+        plt.xlabel("Puntos ordenados")
+        plt.ylabel(f"Distancia al {min_pts}º vecino")
+        plt.title("Curva para estimar eps")
+        plt.grid(True)
+        plt.show()
+
+    # Opción: retornar valor aproximado del codo
+    eps_sugerido = distances_k[int(len(distances_k)*0.95)]  # 95% de distancia
+    print(f"eps sugerido (aprox. 95% de la curva): {eps_sugerido:.4f}")
+    return eps_sugerido
 
 
 
@@ -283,6 +338,7 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
         X_train_norm = normalize(X_train_reducido)
+        estimar_eps(X_train_norm, min_pts=min_pts, plot=True)
         
         # Clustering DBSCAN manual
         print("=== DEBUG X_train_norm ===")
@@ -307,8 +363,8 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
             continue
         else:
             # Métricas
-            sil_score = silhouette_score(X_train_reducido[mask], etiquetas_filtradas, metric='cosine')
-            ch_score = calinski_harabasz_score(X_train_reducido[mask], etiquetas_filtradas)
+            sil_score = silhouette_score(X_train_norm[mask], etiquetas_filtradas, metric='cosine')
+            ch_score = calinski_harabasz_score(X_train_norm[mask], etiquetas_filtradas)
 
             # Combinación simple de métricas
             score_combinado = (sil_score + ch_score / 1000) / 2  # normalizamos CH para escala similar
@@ -535,6 +591,7 @@ if __name__ == "__main__":
     tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
     eps=0.55
     min_pts=5
+   
     metrica="coseno"  # "coseno" o "euclidiana"
     
     agrupar_train_test()
