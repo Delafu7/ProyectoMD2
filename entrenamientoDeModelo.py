@@ -33,8 +33,9 @@ stemmer = SpanishStemmer()
 # Metodos/Funciones
 
 def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", salida_test="test.json"):
-    data_train = defaultdict(list)
-    data_test = defaultdict(list)
+    mensajes_train = []
+    mensajes_test = []
+
     # Recorremos las categorías
     for categoria in os.listdir(ruta_base):
         ruta_categoria = os.path.join(ruta_base, categoria)
@@ -51,9 +52,8 @@ def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", 
                     with open(ruta_archivo, "r", encoding="utf-8") as f:
                         datos_json = json.load(f)
                         for elem in datos_json:
-                            persona_id = archivo.replace(".json", "")
                             if "message" in elem:
-                                data_train[persona_id].append(elem["message"])
+                                mensajes_train.append(elem["message"])
 
         # --- TEST ---
         ruta_test = os.path.join(ruta_categoria, "Test")
@@ -65,23 +65,19 @@ def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", 
                     with open(ruta_archivo, "r", encoding="utf-8") as f:
                         datos_json = json.load(f)
                         for elem in datos_json:
-                            persona_id = archivo.replace(".json", "")
                             if "message" in elem:
-                                data_test[persona_id].append(elem["message"])
+                                mensajes_test.append(elem["message"])
 
-    # Convertir defaultdict a lista de diccionarios
-    train_list = [{"persona": pid, "mensajes": msgs} for pid, msgs in data_train.items()]
-    test_list = [{"persona": pid, "mensajes": msgs} for pid, msgs in data_test.items()]
-
-    # Guardar
+    # Guardar con estructura {"mensajes": [...]}
     with open(salida_train, "w", encoding="utf-8") as f_train:
-        json.dump(train_list, f_train, ensure_ascii=False, indent=2)
+        json.dump({"mensajes": mensajes_train}, f_train, ensure_ascii=False, indent=2)
 
     with open(salida_test, "w", encoding="utf-8") as f_test:
-        json.dump(test_list, f_test, ensure_ascii=False, indent=2)
+        json.dump({"mensajes": mensajes_test}, f_test, ensure_ascii=False, indent=2)
 
-    print(f"Total personas en train: {len(train_list)}")
-    print(f"Total personas en test: {len(test_list)}")
+    print(f"Total mensajes en train: {len(mensajes_train)}")
+    print(f"Total mensajes en test: {len(mensajes_test)}")
+    print(f"Archivos guardados: {salida_train}, {salida_test}")
 #--------------------------------------------------------------------------------------
 #Metodos de preprocesamiento de texto
 
@@ -197,13 +193,13 @@ def generar_embeddings_robertuito(
     batch_size=32
 ):
     # Cargar datos
-    with open("train_preprocesado.json", "r", encoding="utf-8") as f:
+    with open("train.json", "r", encoding="utf-8") as f:
         train_pre = json.load(f)
-    with open("test_preprocesado.json", "r", encoding="utf-8") as f:
+    with open("test.json", "r", encoding="utf-8") as f:
         test_pre = json.load(f)
 
-    train_texts = [" ".join(persona["mensajes"]) for persona in train_pre]
-    test_texts = [" ".join(persona["mensajes"]) for persona in test_pre]
+    train_texts = train_pre["mensajes"]
+    test_texts = test_pre["mensajes"]
 
     # Modelo y tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -573,7 +569,7 @@ if __name__ == "__main__":
     metrica="coseno"  # "coseno" o "euclidiana"
     
     agrupar_train_test()
-    preprocesar_datos(tipo_vectorizacion)
+    #preprocesar_datos(tipo_vectorizacion)
 
     # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
