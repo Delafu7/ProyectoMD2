@@ -8,18 +8,18 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
-from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score, adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score, v_measure_score
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import PCA
 import torch
-import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from collections import defaultdict
 from sklearn.preprocessing import normalize
 import matplotlib.cm as cm
+import pandas as pd
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -247,8 +247,8 @@ def generar_embeddings_robertuito(
 def vectorizar_datos(tipo_vectorizacion="TfidF"):
     if tipo_vectorizacion == "TfidF":
         vectorizar_TfidF()
-    #elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
-    elif tipo_vectorizacion == "robertuito":
+    elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
+    #elif tipo_vectorizacion == "robertuito":
         generar_embeddings_robertuito()
     elif not tipo_vectorizacion in ["TfidF", "robertuito"]:
         raise ValueError("Tipo de vectorización no soportado.") 
@@ -326,7 +326,15 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         print("primer elemento:", X_train_norm[0])
         
         etiquetas = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
-        print(etiquetas)
+        evaluar_y_guardar_metricas(X_pca=X_train_reducido,
+            labels=etiquetas,
+            eps=eps,
+            min_pts=min_pts,
+            n_componentes=n,
+            tipo_vectorizacion=tipo_vectorizacion,
+            y_true=None  # o tus etiquetas reales si las tienes
+        )
+        #print(etiquetas)
         visualizar_clusters_por_etiqueta(X_train_reducido, etiquetas, f"Clusters PCA={n} (Train)")
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
@@ -594,12 +602,81 @@ def calculoDeIndices(modelo, labels_train=None, labels_test=None):
           f" calinski score: {calinski_test}")
 
     return resultados
+
+def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_vectorizacion="robertuito", y_true=None, archivo_csv="resultados_metricas.csv"):
+    """
+    Calcula métricas de evaluación del clustering y las guarda en un CSV.
+    Si hay etiquetas reales (y_true), calcula métricas externas también.
+    """
+
+    # Convertir a arrays numpy
+    X_pca = np.array(X_pca)
+    labels = np.array(labels)
+
+    # Filtrar ruido
+    mask = labels != -1
+    if np.sum(mask) < 2:
+        print("No hay suficientes puntos no-ruido para calcular métricas.")
+        return
+
+    X_filtrado = X_pca[mask]
+    labels_filtrados = labels[mask]
+
+    # --- Métricas internas ---
+    silhouette = silhouette_score(X_filtrado, labels_filtrados, metric="cosine")
+    calinski = calinski_harabasz_score(X_filtrado, labels_filtrados)
+    davies = davies_bouldin_score(X_filtrado, labels_filtrados)
+
+    # --- Métricas externas (si hay etiquetas verdaderas) ---
+    ari = nmi = h = c = v = np.nan
+    if y_true is not None:
+        y_true = np.array(y_true)[mask]
+        ari = adjusted_rand_score(y_true, labels_filtrados)
+        nmi = normalized_mutual_info_score(y_true, labels_filtrados)
+        h = homogeneity_score(y_true, labels_filtrados)
+        c = completeness_score(y_true, labels_filtrados)
+        v = v_measure_score(y_true, labels_filtrados)
+
+    # --- Info del clustering ---
+    num_clusters = len(set(labels_filtrados))
+    num_ruido = np.sum(labels == -1)
+
+    # Crear registro
+    fila = {
+        "vectorizacion": tipo_vectorizacion,
+        "PCA_componentes": n_componentes,
+        "eps": eps,
+        "min_pts": min_pts,
+        "clusters": num_clusters,
+        "ruido": num_ruido,
+        "silhouette": silhouette,
+        "calinski": calinski,
+        "davies": davies,
+        "ARI": ari,
+        "NMI": nmi,
+        "Homogeneity": h,
+        "Completeness": c,
+        "V_measure": v,
+    }
+
+    # Guardar o añadir al CSV
+    df_fila = pd.DataFrame([fila])
+    if os.path.exists(archivo_csv):
+        df_fila.to_csv(archivo_csv, mode="a", header=False, index=False)
+    else:
+        df_fila.to_csv(archivo_csv, index=False)
+
+    print(f" Métricas guardadas en {archivo_csv}")
+    print(f" Clusters: {num_clusters}, Silhouette={silhouette:.3f}, CH={calinski:.1f}, DB={davies:.3f}")
+
+    return fila
+
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
-    eps=0.55
+    eps=0.1
     min_pts=5
    
     metrica="coseno"  # "coseno" o "euclidiana"
