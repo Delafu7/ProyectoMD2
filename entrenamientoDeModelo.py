@@ -9,6 +9,7 @@ from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score, adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score, v_measure_score
+from sklearn.neighbors import NearestNeighbors
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -371,12 +372,20 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         visualizar_clusters_directo(mejor_X_train, etiquetas_finales, f"Clusters finales ({tipo_vectorizacion})")
 
 
-    mejor_X_train = np.array(mejor_X_train, dtype=float)
+    mejor_X_train = np.asarray(mejor_X_train, dtype=np.float32)
     np.save("X_train_pca_best.npy", mejor_X_train)
-    mejor_X_test = np.array(mejor_X_test, dtype=float)
+
+    mejor_X_test = np.asarray(mejor_X_test, dtype=np.float32)
     np.save("X_test_pca_best.npy", mejor_X_test)
+
+
     joblib.dump(mejor_pca, "modelo_pca_best.pkl")
-    print(f"🏆 Mejor PCA: {mejor_n} componentes con score combinado={mejor_score:.3f}")
+
+
+    X_train_norm = normalize_rows(mejor_X_train, copy=False)  # usa tu helper
+    np.save("X_train_pca_best_norm.npy", X_train_norm)
+
+    print(f"🏆 Mejor reducción: {mejor_n} componentes con score combinado={mejor_score:.3f}")
     
 
 #--------------------------------------------------------------------------------------
@@ -498,9 +507,7 @@ def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=3):
 #--------------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------------
-def nueva_instancia_a_clusterizar(instancia):
-    # Aquí iría la lógica para predecir con nuevos datos
-    pass
+
 
 #--------------------------------------------------------------------------------------
 
@@ -671,13 +678,140 @@ def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_
 
     return fila
 
+def normalize_rows(X, copy=True):
+    """
+    Normaliza cada fila de X a norma L2 = 1.
+    Devuelve un array float32.
+    """
+    X = np.asarray(X, dtype=np.float32)
+    return normalize(X, norm='l2', axis=1, copy=copy).astype(np.float32)
+def nueva_instancia_a_clusterizar(instancia,model_name="pysentimiento/robertuito-base-uncased",eps=0.1,metrica="coseno",max_length=128,intentar_centroide=True,n_componentes_auto=128,):
+    """
+    Dada una instancia nueva (texto), predice a qué cluster pertenecería
+    según los embeddings de entrenamiento y el modelo PCA/DBSCAN existente.
+    """
+
+    from sklearn.neighbors import NearestNeighbors
+
+    # Rutas de archivos
+    candidatos_reductor = ["modelo_pca_best.pkl", "reductor.pkl", "modelo_pca_best.joblib"]
+    ruta_X_train_pca = "X_train_pca_best.npy"
+    ruta_X_train_emb = "X_train_robertuito.npy"
+    archivos_labels = [f for f in os.listdir() if f.startswith("labels") and f.endswith(".npy")]
+
+    # Buscar reductor (PCA)
+    ruta_reductor = None
+    if ruta_reductor is None:
+        for f in os.listdir():
+            if (f.endswith(".pkl") or f.endswith(".joblib")) and ("pca" in f.lower()):
+                ruta_reductor = f
+                break
+
+    # Crear reductor si no existe
+    if ruta_reductor is None and os.path.exists(ruta_X_train_emb):
+        from sklearn.decomposition import PCA
+        X_emb = np.load(ruta_X_train_emb).astype(np.float32)
+        n_comp = min(n_componentes_auto, max(1, X_emb.shape[0] - 1), X_emb.shape[1])
+        pca = PCA(n_components=n_comp, random_state=42)
+        X_red = pca.fit_transform(X_emb).astype(np.float32)
+        np.save(ruta_X_train_pca, X_red)
+        ruta_reductor = "modelo_pca_best.pkl"
+        joblib.dump(pca, ruta_reductor)
+
+    if ruta_reductor is None:
+        return {"error": "No se encontró el reductor ni los embeddings originales (X_train_robertuito.npy)."}
+
+    if not os.path.exists(ruta_X_train_pca):
+        return {"error": f"No se encontró {ruta_X_train_pca}."}
+    if len(archivos_labels) == 0:
+        return {"error": "No se encontraron archivos labels_*.npy."}
+    ruta_labels = archivos_labels[0]
+
+    # Generar embedding del texto directamente
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    model = AutoModel.from_pretrained(model_name).to(device)
+    model.eval()
+    with torch.inference_mode():
+        enc = tokenizer([instancia], truncation=True, padding="longest", max_length=max_length, return_tensors="pt")
+        enc = {k: v.to(device) for k, v in enc.items()}
+        out = model(**enc)
+        last_hidden = out.last_hidden_state
+        mask = enc["attention_mask"].unsqueeze(-1).float()
+        summed = torch.sum(last_hidden * mask, dim=1)
+        counts = torch.sum(mask, dim=1).clamp(min=1.0)
+        emb = (summed / counts).cpu().numpy().astype(np.float32)
+
+    # Cargar reductor
+    try:
+        reductor = joblib.load(ruta_reductor)
+    except Exception as e:
+        return {"error": f"Error al cargar el reductor: {e}"}
+
+    # Transformar y normalizar
+    X_nuevo = reductor.transform(emb).astype(np.float32)
+    X_nuevo_norm = normalize(X_nuevo, norm='l2', axis=1).astype(np.float32)
+
+    # Cargar entrenamiento reducido y etiquetas
+    X_train = np.load(ruta_X_train_pca).astype(np.float32)
+    labels_train = np.load(ruta_labels).astype(int)
+    X_train_norm = normalize(X_train, norm='l2', axis=1).astype(np.float32)
+
+    # Vecino más cercano
+    metrica_nn = "cosine" if metrica == "coseno" else "euclidean"
+    vecinos = NearestNeighbors(n_neighbors=1, metric=metrica_nn, n_jobs=-1).fit(X_train_norm)
+    dist, idx = vecinos.kneighbors(X_nuevo_norm)
+    dist_val = float(dist.ravel()[0])
+    idx0 = int(idx.ravel()[0])
+    etiqueta_vecino = int(labels_train[idx0])
+    etiqueta_asignada = etiqueta_vecino if (dist_val <= eps and etiqueta_vecino != -1) else -1
+
+    # Fallback por centroides
+    centroide_verificado = False
+    centroide_elegido = {"etiqueta": None, "dist": None}
+    if etiqueta_asignada == -1 and intentar_centroide:
+        centroide_verificado = True
+        sin_ruido = [l for l in np.unique(labels_train) if l != -1]
+        centroides = {lab: X_train_norm[labels_train == lab].mean(axis=0) for lab in sin_ruido}
+        C = np.vstack(list(centroides.values())).astype(np.float32)
+        claves_c = list(centroides.keys())
+
+        if metrica_nn == "cosine":
+            puntos = np.dot(C, X_nuevo_norm.ravel())
+            dist_centroides = (1.0 - np.clip(puntos, -1.0, 1.0)).astype(np.float32)
+        else:
+            diferencias = C - X_nuevo_norm.ravel()
+            dist_centroides = np.linalg.norm(diferencias, axis=1).astype(np.float32)
+
+        min_idx = int(np.argmin(dist_centroides))
+        min_dist = float(dist_centroides[min_idx])
+        min_label = int(claves_c[min_idx])
+        centroide_elegido = {"etiqueta": min_label, "dist": min_dist}
+
+        if min_dist <= eps:
+            etiqueta_asignada = min_label
+            dist_val = min_dist
+            idx0 = -1
+
+    return {
+        "instancia": instancia,
+        "etiqueta_asignada": int(etiqueta_asignada),
+        "indice_vecino": int(idx0),
+        "etiqueta_vecino": int(etiqueta_vecino),
+        "distancia_al_vecino": float(dist_val),
+        "centroide_verificado": centroide_verificado,
+        "centroide_elegido": centroide_elegido,
+        "archivo_labels_usado": ruta_labels,
+        "archivo_modelo_pca": ruta_reductor
+    }
+
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
     eps=0.1
-    min_pts=5
+    min_pts=8
    
     metrica="coseno"  # "coseno" o "euclidiana"
     
@@ -686,8 +820,11 @@ if __name__ == "__main__":
 
     # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
+    #PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
 
     # Clustering manual DBSCAN
     #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
 
+    texto = "Me quiero pegar un tiro y tirarme por la ventana"
+    resultado = nueva_instancia_a_clusterizar(texto,  eps=eps,  metrica=metrica)
+    print(resultado)
