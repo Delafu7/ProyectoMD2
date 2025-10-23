@@ -933,7 +933,56 @@ if __name__ == "__main__":
     Xpca_norm = normalize(Xpca, norm="l2", axis=1).astype(np.float32)
 
     #DBSCAN
-    etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+    #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+    #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
+    eps_list = [0.2]
+    min_pts_list = [25 ,30, 40]
+
+    best_sil = -np.inf
+    best_combo = (eps, min_pts)
+    best_labels = None
+
+    for e in eps_list:
+        for m in min_pts_list:
+                tmp = dbscan(Xpca_norm, eps=float(e), min_pts=int(m), metric=metrica)
+                tmp = np.asarray(tmp, dtype=int)
+
+                # Contar clusters validos
+                mask = tmp != -1
+                n_clusters = len(set(tmp[mask])) if np.sum(mask) > 0 else 0
+
+                if n_clusters >= 2:
+                    # Silhouette sobre los puntos no-ruido
+                    sil = float(silhouette_score(Xpca_norm[mask], tmp[mask], metric='cosine'))
+                else:
+                    sil = -1.0
+
+                print(f"Prueba eps={e}, min_pts={m} -> clusters={n_clusters}, silhouette={sil:.4f}")
+
+                # Guardar mejor por silhouette
+                if sil > best_sil:
+                    best_sil = sil
+                    best_combo = (e, m)
+                    best_labels = tmp.copy()
+
+                # Guardar etiquetas de esta configuración por si quieres revisarlas luego
+                fname_labels = f"labels_dbscan_eps{str(e).replace('.', '_')}_min{m}.npy"
+                np.save(fname_labels, tmp)
+
+
+    # Si no se encontró combinación con ≥2 cluster válidos, usar la original
+    if best_labels is None:
+        print("No se encontró combinación con >=2 clusters válidos; uso la combinación original.")
+        etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+        etiquetas = np.asarray(etiquetas, dtype=int)
+    else:
+        best_eps, best_min_pts = best_combo
+        print(f"Mejor combo: eps={best_eps}, min_pts={best_min_pts}, silhouette={best_sil:.4f}")
+        etiquetas = best_labels
+        eps = best_eps
+        min_pts = best_min_pts
+
+    # Guardar etiquetas finales
     np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
 
 
