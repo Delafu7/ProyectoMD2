@@ -423,28 +423,50 @@ def dbscan(datos, eps, min_pts,metric):
     return labels
 
 
-def clustering_DBSCAN(tipo_vectorizacion="TfidF", eps=0.5, min_pts=3):
+def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
     """
     Aplica DBSCAN sobre los vectores reducidos (PCA) de la representación elegida.
     """
     # Cargar datos reducidos
-    X_train = np.load("X_train_pca_best.npy")  # <- archivo generado por PCA_reduccion_dimensionalidad
+    X_train = np.asarray(datos, dtype=np.float32)
 
-    print(f"Clustering DBSCAN sobre {tipo_vectorizacion}... ({X_train.shape[0]} muestras)")
+    print(f"Clustering DBSCAN sobre ... ({X_train.shape[0]} muestras)")
 
-    # Convertir a lista de listas (para tu función DBSCAN)
+    # Convertir a lista de listas
     datos_lista = X_train.tolist()
 
-    # Aplicar DBSCAN
-    etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts,metric="coseno")
 
-    # Guardar etiquetas en un archivo
-    np.save(f"labels_{tipo_vectorizacion}_dbscan.npy", etiquetas)
+    etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts,metric=metric)
 
-    # Contar clusters encontrados
+    # Conseguir los mensajes originales
+    with open("train.json", "r", encoding="utf-8") as f:
+        obj = json.load(f)
+    if not (isinstance(obj, dict) and "mensajes" in obj and isinstance(obj["mensajes"], list)):
+        raise ValueError(" debe ser un dict con clave 'mensajes' -> lista de strings.")
+    mensajes = obj["mensajes"]
+
+
+    n = X_train.shape[0]
+    if len(mensajes) != n:
+        raise ValueError(
+            f"Desalineacion: ruta_json contiene {len(mensajes)} mensajes pero X_train tiene {n} filas.")
+
+        # emparejar y guardar
+    pares = list(zip(mensajes, etiquetas))
+
+    nombre_npy = f"mensajes_y_labels_{tipo_vectorizacion}.npy"
+    np.save(nombre_npy, np.array(pares, dtype=object), allow_pickle=True)
+
+    nombre_csv = f"mensajes_y_labels_{tipo_vectorizacion}.csv"
+    df = pd.DataFrame(pares, columns=["mensaje", "cluster"])
+    df.to_csv(nombre_csv, index=False, encoding="utf-8")
+
+
     num_clusters = len(set([l for l in etiquetas if l != -1]))
+    num_ruido = etiquetas.count(-1)
     print(f"Clusters encontrados: {num_clusters}")
-    print(f"Puntos ruido: {etiquetas.count(-1)}")
+    print(f"Puntos ruido: {num_ruido}")
+    return etiquetas
 #--------------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------------
@@ -935,8 +957,8 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.2]
-    min_pts_list = [25 ,30, 40]
+    eps_list = [0.1]
+    min_pts_list = [5]
 
     best_sil = -np.inf
     best_combo = (eps, min_pts)
@@ -944,7 +966,7 @@ if __name__ == "__main__":
 
     for e in eps_list:
         for m in min_pts_list:
-                tmp = dbscan(Xpca_norm, eps=float(e), min_pts=int(m), metric=metrica)
+                tmp = clustering_DBSCAN(Xpca_norm, eps=float(e), min_pts=int(m), metric=metrica)
                 tmp = np.asarray(tmp, dtype=int)
 
                 # Contar clusters validos
@@ -973,7 +995,7 @@ if __name__ == "__main__":
     # Si no se encontró combinación con ≥2 cluster válidos, usar la original
     if best_labels is None:
         print("No se encontró combinación con >=2 clusters válidos; uso la combinación original.")
-        etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+        etiquetas = clustering_DBSCAN(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
         etiquetas = np.asarray(etiquetas, dtype=int)
     else:
         best_eps, best_min_pts = best_combo
@@ -1015,7 +1037,7 @@ if __name__ == "__main__":
     n_componentes_usado = Xpca.shape[1]
     resultados = evaluar_y_guardar_metricas(X_pca=Xpca,labels=etiquetas,eps=eps,min_pts=min_pts,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion,y_true=None,)
 
-    print("\n=== Resultados métricas ===")
+    print("\n=== Resultados metricas ===")
     if resultados is not None:
         # imprimir resumen compacto
         print(f"Metricas guardadas en 'resultados_metricas.csv' (fila añadida).")
@@ -1024,7 +1046,7 @@ if __name__ == "__main__":
 
 
 
-    texto = ""
+    texto = "quiero pegarme un tiro cara llorando de la risa"
     resultado = nueva_instancia_a_clusterizar(texto,  eps=eps,  metrica=metrica)
     print(resultado)
 
