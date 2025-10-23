@@ -451,14 +451,22 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
         raise ValueError(
             f"Desalineacion: ruta_json contiene {len(mensajes)} mensajes pero X_train tiene {n} filas.")
 
-        # emparejar y guardar
+    filas = []
+    for i in range(n):
+        mensaje = mensajes[i]
+        lab = int(etiquetas[i])
+        embedding = X_train[i].astype(float).tolist()
+        emb_json = json.dumps(embedding, ensure_ascii=False)
+        filas.append((mensaje, lab, emb_json))
+
+    # emparejar y guardar
     pares = list(zip(mensajes, etiquetas))
 
     nombre_npy = f"mensajes_y_labels_{tipo_vectorizacion}.npy"
     np.save(nombre_npy, np.array(pares, dtype=object), allow_pickle=True)
 
     nombre_csv = f"mensajes_y_labels_{tipo_vectorizacion}.csv"
-    df = pd.DataFrame(pares, columns=["mensaje", "cluster"])
+    df = pd.DataFrame(filas, columns=["mensaje", "cluster","embedding"])
     df.to_csv(nombre_csv, index=False, encoding="utf-8")
 
 
@@ -957,8 +965,8 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.1]
-    min_pts_list = [5]
+    eps_list = [0.1,0.12,0.15,0,2]
+    min_pts_list = [5,7,8,10,11,15,20]
 
     best_sil = -np.inf
     best_combo = (eps, min_pts)
@@ -966,7 +974,7 @@ if __name__ == "__main__":
 
     for e in eps_list:
         for m in min_pts_list:
-                tmp = clustering_DBSCAN(Xpca_norm, eps=float(e), min_pts=int(m), metric=metrica)
+                tmp = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica)
                 tmp = np.asarray(tmp, dtype=int)
 
                 # Contar clusters validos
@@ -995,7 +1003,7 @@ if __name__ == "__main__":
     # Si no se encontró combinación con ≥2 cluster válidos, usar la original
     if best_labels is None:
         print("No se encontró combinación con >=2 clusters válidos; uso la combinación original.")
-        etiquetas = clustering_DBSCAN(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+        etiquetas = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica)
         etiquetas = np.asarray(etiquetas, dtype=int)
     else:
         best_eps, best_min_pts = best_combo
@@ -1046,7 +1054,7 @@ if __name__ == "__main__":
 
 
 
-    texto = "quiero pegarme un tiro cara llorando de la risa"
+    texto = ""
     resultado = nueva_instancia_a_clusterizar(texto,  eps=eps,  metrica=metrica)
     print(resultado)
 
