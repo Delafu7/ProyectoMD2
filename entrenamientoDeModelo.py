@@ -9,6 +9,7 @@ from nltk.corpus import stopwords
 from nltk.stem.snowball import SpanishStemmer
 import numpy as np
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score, adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score, v_measure_score
+from sklearn.metrics import silhouette_samples
 from sklearn.neighbors import NearestNeighbors
 from transformers import AutoModel, AutoTokenizer
 from pysentimiento.preprocessing import preprocess_tweet
@@ -21,6 +22,13 @@ from collections import defaultdict
 from sklearn.preprocessing import normalize
 import matplotlib.cm as cm
 import pandas as pd
+from sklearn.manifold import TSNE
+try:
+    import umap
+    UMAP_AVAILABLE = True
+except Exception:
+    UMAP_AVAILABLE = False
+import seaborn as sns
 # Preprocesamiento de texto
 #-------------------------------------------------------------------------------------
 nltk.download('stopwords')
@@ -257,36 +265,6 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 #--------------------------------------------------------------------------------------
 # -------- Distancia coseno (vectorizado) ----------
-def estimar_eps(X_norm, min_pts=5, plot=True):
-    """
-    Estima un buen valor de eps para DBSCAN usando la distancia al k-ésimo vecino.
-    
-    X_norm: np.ndarray (normalizado, n_samples x n_features)
-    min_pts: número de vecinos a considerar
-    plot: si True, grafica la curva para elegir eps visualmente
-    """
-    from sklearn.neighbors import NearestNeighbors
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    neighbors = NearestNeighbors(n_neighbors=min_pts, metric="cosine").fit(X_norm)
-    distances, _ = neighbors.kneighbors(X_norm)
-    distances_k = np.sort(distances[:, min_pts-1])
-
-    if plot:
-        plt.figure(figsize=(8,4))
-        plt.plot(distances_k)
-        plt.xlabel("Puntos ordenados")
-        plt.ylabel(f"Distancia al {min_pts}º vecino")
-        plt.title("Curva para estimar eps")
-        plt.grid(True)
-        plt.show()
-
-    # Opción: retornar valor aproximado del codo
-    eps_sugerido = distances_k[int(len(distances_k)*0.95)]  # 95% de distancia
-    print(f"eps sugerido (aprox. 95% de la curva): {eps_sugerido:.4f}")
-    return eps_sugerido
-
 
 
 def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100],eps=0.5, min_pts=3,metric="coseno"):
@@ -313,9 +291,7 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
         X_train_norm = normalize(X_train_reducido)
-        estimar_eps(X_train_norm, min_pts=min_pts, plot=True)
-        
-        # Clustering DBSCAN manual
+                
         print("=== DEBUG X_train_norm ===")
         print("type:", type(X_train_norm))
         try:
@@ -327,6 +303,11 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         print("primer elemento:", X_train_norm[0])
         
         etiquetas = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
+        visualizar_clusters_por_etiqueta(X_train_reducido, etiquetas, f"Clusters PCA={n} (Train)")
+        plot_cluster_sizes(etiquetas, titulo="Tamaño clusters PCA=...")
+        plot_centroid_distance_matrix(X_train_reducido, etiquetas, metric="cosine")
+        plot_silhouette_per_sample(X_train_reducido, etiquetas)
+        plot_2d_embedding_scatter(X_train_reducido, etiquetas, method="umap") 
         evaluar_y_guardar_metricas(X_pca=X_train_reducido,
             labels=etiquetas,
             eps=eps,
@@ -336,7 +317,7 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
             y_true=None  # o tus etiquetas reales si las tienes
         )
         #print(etiquetas)
-        visualizar_clusters_por_etiqueta(X_train_reducido, etiquetas, f"Clusters PCA={n} (Train)")
+        
         # Filtrar ruido para métricas
         mask = np.array(etiquetas) != -1
         etiquetas_filtradas = np.array(etiquetas)[mask]
@@ -806,12 +787,182 @@ def nueva_instancia_a_clusterizar(instancia,model_name="pysentimiento/robertuito
     }
 
 #--------------------------------------------------------------------------------------
+def plot_metrics_from_csv(archivo_csv="resultados_metricas.csv", columnas=None, figsize=(10,5)):
+    """
+    Carga CSV con varias filas (experimentos) y grafica las métricas más relevantes
+    columnas: lista de columnas a graficar (ej: ["silhouette","calinski","davies"])
+    """
+    if not os.path.exists(archivo_csv):
+        print(f"No existe {archivo_csv}")
+        return
+    df = pd.read_csv(archivo_csv)
+    if columnas is None:
+        columnas = ["silhouette", "calinski", "davies"]
+        columnas = [c for c in columnas if c in df.columns]
+
+    if len(columnas) == 0:
+        print("No hay columnas seleccionadas en el CSV")
+        return
+
+    plt.figure(figsize=figsize)
+    for c in columnas:
+        plt.plot(df.index, df[c], marker='o', label=c)
+    plt.xlabel("Experimento / fila CSV")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend()
+    plt.title("Evolución de métricas por experimento")
+    plt.tight_layout()
+    plt.show()
+    
+def plot_cluster_sizes(labels, titulo="Tamaño de clusters"):
+    """
+    labels: array/list de etiquetas (incluye -1 ruido)
+    """
+    labels = np.array(labels)
+    unique, counts = np.unique(labels, return_counts=True)
+    df = pd.DataFrame({"label": unique, "count": counts})
+    df = df.sort_values("count", ascending=False)
+    plt.figure(figsize=(8,4))
+    plt.bar(df['label'].astype(str), df['count'])
+    plt.xlabel("Cluster")
+    plt.ylabel("Número de puntos")
+    plt.title(titulo)
+    for idx, row in df.iterrows():
+        plt.text(idx, row['count'] + 0.5, int(row['count']), ha='center', va='bottom', fontsize=9)
+    plt.tight_layout()
+    plt.show()
+    
+    
+def plot_centroid_distance_matrix(X, labels, metric="cosine", titulo="Distancias entre centroides", annot=True):
+    """
+    Calcula centroides por cluster (excluyendo ruido) y muestra heatmap de distancias.
+    X: np.ndarray (n_samples, n_features)
+    labels: lista/array de etiquetas
+    metric: "cosine" o "euclidiana"
+    """
+    X = np.asarray(X)
+    labels = np.asarray(labels)
+    clusters = [c for c in np.unique(labels) if c != -1]
+    if len(clusters) == 0:
+        print("No hay clusters válidos (sólo ruido).")
+        return
+    centroides = np.vstack([X[labels == c].mean(axis=0) for c in clusters])
+    # matriz de distancias
+    if metric == "cosine":
+        # cos similarity -> distancia
+        sim = np.dot(centroides, centroides.T)
+        norms = np.linalg.norm(centroides, axis=1)
+        denom = np.outer(norms, norms) + 1e-12
+        cos_sim = sim / denom
+        D = 1.0 - np.clip(cos_sim, -1, 1)
+    else:
+        # euclidiana
+        from scipy.spatial.distance import cdist
+        D = cdist(centroides, centroides, metric='euclidean')
+
+    plt.figure(figsize=(8,6))
+    sns.heatmap(D, annot=annot, xticklabels=clusters, yticklabels=clusters, cmap="viridis")
+    plt.title(titulo)
+    plt.xlabel("Cluster")
+    plt.ylabel("Cluster")
+    plt.tight_layout()
+    plt.show()
+
+def plot_silhouette_per_sample(X, labels, titulo="Silhouette por muestra"):
+    """
+    Dibuja el silhouette plot clásico para ver la distribución por cluster.
+    X: array (n_samples, n_features) -> preferiblemente PCA 2D/normalizado
+    labels: etiquetas (incluye -1)
+    """
+    X = np.asarray(X)
+    labels = np.asarray(labels)
+    mask = labels != -1
+    if np.sum(mask) < 2:
+        print("No hay suficientes muestras no-ruido para silhouette.")
+        return
+    X_fil = X[mask]
+    lab_fil = labels[mask]
+    sil_vals = silhouette_samples(X_fil, lab_fil, metric='cosine')
+    # ordenar por cluster
+    df = pd.DataFrame({"label": lab_fil, "sil": sil_vals})
+    df = df.sort_values(["label", "sil"], ascending=[True, False])
+    y_lower = 10
+    plt.figure(figsize=(9,6))
+    for i, lab in enumerate(sorted(df['label'].unique())):
+        vals = df[df['label']==lab]['sil'].values
+        y_upper = y_lower + len(vals)
+        plt.fill_betweenx(np.arange(y_lower, y_upper), 0, vals, alpha=0.7)
+        plt.text(-0.05, (y_lower + y_upper) / 2, str(lab))
+        y_lower = y_upper + 10
+    plt.xlabel("Silhouette coefficient")
+    plt.ylabel("Muestras agrupadas por cluster")
+    plt.title(titulo)
+    plt.axvline(x=np.mean(sil_vals), color="red", linestyle="--", label="Media silhouette")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_2d_embedding_scatter(X, labels, method="tsne", titulo="Visualización 2D", random_state=42, perplexity=30):
+    """
+    Reduce a 2D con t-SNE o UMAP y grafica los puntos coloreados por label.
+    method: "tsne" o "umap"
+    """
+    X = np.asarray(X)
+    labels = np.asarray(labels)
+    if method == "umap" and UMAP_AVAILABLE:
+        reducer = umap.UMAP(n_components=2)
+        emb = reducer.fit_transform(X)
+    else:
+        # t-SNE
+        ts = TSNE(n_components=2, random_state=random_state, perplexity=min(perplexity, max(5, X.shape[0]//4)), n_iter=1000)
+        emb = ts.fit_transform(X)
+    unique = sorted(set(labels))
+    plt.figure(figsize=(9,7))
+    colors = cm.tab10(np.linspace(0,1,max(len(unique)-1,1)))
+    for i, lab in enumerate(unique):
+        mask = labels == lab
+        col = (0.5,0.5,0.5,0.3) if lab == -1 else colors[i % len(colors)]
+        plt.scatter(emb[mask,0], emb[mask,1], s=25, c=[col], label=f"Cluster {lab}" if lab!=-1 else "Ruido", alpha=0.7)
+    plt.title(titulo)
+    plt.legend(loc='best', fontsize='small')
+    plt.tight_layout()
+    plt.show()
+
+def plot_top_terms_per_cluster_tfidf(vectorizer, X_tfidf, labels, topn=10, titulo="Top términos por cluster"):
+    """
+    Muestra en una tabla/print los top-n términos de cada cluster (sólo si usas TF-IDF).
+    vectorizer: objeto TfidfVectorizer (ya entrenado)
+    X_tfidf: matriz 2D (n_samples, n_terms) correlacionada con las muestras (no PCA)
+    labels: etiquetas por muestra (incluye -1)
+    """
+    if not hasattr(vectorizer, "get_feature_names_out"):
+        print("Vectorizer no tiene get_feature_names_out.")
+        return
+    features = vectorizer.get_feature_names_out()
+    labels = np.asarray(labels)
+    clusters = [c for c in np.unique(labels) if c != -1]
+    rows = []
+    for c in clusters:
+        idxs = np.where(labels == c)[0]
+        if len(idxs) == 0:
+            continue
+        # sumar pesos TF-IDF por cluster
+        cluster_sum = np.asarray(X_tfidf[idxs].sum(axis=0)).ravel()
+        top_idx = cluster_sum.argsort()[::-1][:topn]
+        top_terms = [features[i] for i in top_idx]
+        rows.append({"cluster": c, "top_terms": ", ".join(top_terms)})
+    df = pd.DataFrame(rows).sort_values("cluster")
+    print(titulo)
+    print(df)  # si usas notebook; si no, imprime:
+    # return df
+
+#--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
     eps=0.1
-    min_pts=8
+    min_pts=5
    
     metrica="coseno"  # "coseno" o "euclidiana"
     
@@ -820,7 +971,7 @@ if __name__ == "__main__":
 
     # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
-    #PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
 
     # Clustering manual DBSCAN
     #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
