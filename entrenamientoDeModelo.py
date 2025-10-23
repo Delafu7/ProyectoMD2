@@ -457,7 +457,7 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
         lab = int(etiquetas[i])
         embedding = X_train[i].astype(float).tolist()
         emb_json = json.dumps(embedding, ensure_ascii=False)
-        filas.append((mensaje, lab, emb_json))
+        filas.append((mensaje, lab))
 
     # emparejar y guardar
     pares = list(zip(mensajes, etiquetas))
@@ -466,7 +466,7 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
     np.save(nombre_npy, np.array(pares, dtype=object), allow_pickle=True)
 
     nombre_csv = f"mensajes_y_labels_{tipo_vectorizacion}.csv"
-    df = pd.DataFrame(filas, columns=["mensaje", "cluster","embedding"])
+    df = pd.DataFrame(filas, columns=["mensaje", "cluster"])
     df.to_csv(nombre_csv, index=False, encoding="utf-8")
 
 
@@ -986,6 +986,8 @@ if __name__ == "__main__":
                     sil = float(silhouette_score(Xpca_norm[mask], tmp[mask], metric='cosine'))
                 else:
                     sil = -1.0
+                n_componentes_usado = Xpca.shape[1]
+                resultados = evaluar_y_guardar_metricas(X_pca=Xpca, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
 
                 print(f"Prueba eps={e}, min_pts={m} -> clusters={n_clusters}, silhouette={sil:.4f}")
 
