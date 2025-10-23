@@ -267,107 +267,67 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 # -------- Distancia coseno (vectorizado) ----------
 
 
-def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100],eps=0.5, min_pts=3,metric="coseno"):
+def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100]):
+
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
-        X_test_data = np.load("X_test_tfidf.npy")
+        X_test_data  = np.load("X_test_tfidf.npy")
     elif tipo_vectorizacion == "robertuito":
         X_train_data = np.load("X_train_robertuito.npy")
-        X_test_data = np.load("X_test_robertuito.npy")
+        X_test_data  = np.load("X_test_robertuito.npy")
     else:
         raise ValueError("Tipo de vectorización no soportado.")
+
     print(f"Reducción PCA sobre {tipo_vectorizacion}... ({X_train_data.shape[0]} muestras, {X_train_data.shape[1]} features)")
-    # Inicialización para guardar el mejor PCA
-    mejor_score = -np.inf
+
+    # Inicialización para guardar el mejor PCA (criterio: mayor varianza explicada total)
+    mejor_varianza = -np.inf
     mejor_X_train = None
-    mejor_X_test = None
+    mejor_X_test  = None
     mejor_pca = None
     mejor_n = None
 
 
+
     # Iterar sobre distintos números de componentes
     for n in n_componentes:
+        print(f"\n====== Probando PCA n_components={n} ======")
         pca = PCA(n_components=n)
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
-        X_train_norm = normalize(X_train_reducido)
-                
-        print("=== DEBUG X_train_norm ===")
-        print("type:", type(X_train_norm))
-        try:
-            print("shape:", X_train_norm.shape)
-        except Exception as e:
-            print("shape error:", e)
-        print("dtype:", getattr(X_train_norm, "dtype", "sin dtype"))
-        print("primer elemento (type):", type(X_train_norm[0]))
-        print("primer elemento:", X_train_norm[0])
-        
-        etiquetas = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
-        visualizar_clusters_por_etiqueta(X_train_reducido, etiquetas, f"Clusters PCA={n} (Train)")
-        plot_cluster_sizes(etiquetas, titulo="Tamaño clusters PCA=...")
-        plot_centroid_distance_matrix(X_train_reducido, etiquetas, metric="cosine")
-        plot_silhouette_per_sample(X_train_reducido, etiquetas)
-        #plot_2d_embedding_scatter(X_train_reducido, etiquetas, method="umap") 
-        evaluar_y_guardar_metricas(X_pca=X_train_reducido,
-            labels=etiquetas,
-            eps=eps,
-            min_pts=min_pts,
-            n_componentes=n,
-            tipo_vectorizacion=tipo_vectorizacion,
-            y_true=None  # o tus etiquetas reales si las tienes
-        )
-        #print(etiquetas)
-        
-        # Filtrar ruido para métricas
-        mask = np.array(etiquetas) != -1
-        etiquetas_filtradas = np.array(etiquetas)[mask]
-        num_clusters_validos = len(set(etiquetas_filtradas))
-        if np.sum(mask) <= 1 or num_clusters_validos < 2:
-            print(f"PCA={n}: No se formaron suficientes clusters válidos ({num_clusters_validos} encontrados).")
-            continue
-        else:
-            # Métricas
-            sil_score = silhouette_score(X_train_norm[mask], etiquetas_filtradas, metric='cosine')
-            ch_score = calinski_harabasz_score(X_train_norm[mask], etiquetas_filtradas)
 
-            # Combinación simple de métricas
-            score_combinado = (sil_score + ch_score / 1000) / 2  # normalizamos CH para escala similar
+        # var_total TODO
+        var_total = float(np.sum(pca.explained_variance_ratio_))
+        # error de reconstruccion TODO
+        X_reconstruido = pca.inverse_transform(X_train_reducido)
+        error_recon = float(np.mean(np.square(X_train_data - X_reconstruido)))
 
-            print(f"PCA={n}: Silhouette={sil_score:.3f}, CH={ch_score:.1f}, combinado={score_combinado:.3f}")
+        print(f"Varianza explicada total (n={n}): {var_total}")
+        print(f"Error de reconstrucción (n={n}): {error_recon}")
 
-            # Guardar el mejor
-            if score_combinado > mejor_score:
-                mejor_score = score_combinado
-                mejor_X_train = X_train_reducido
-                mejor_X_test = X_test_reducido
-                mejor_pca = pca
-                mejor_n = n
+        # Guardar resultados intermedios
+        #np.save(f"X_train_pca_{n}.npy", X_train_reducido.astype(np.float32))
+        #np.save(f"X_test_pca_{n}.npy", X_test_reducido.astype(np.float32))
+        #joblib.dump(pca, f"modelo_pca_{n}.pkl")
+        #print(f"Guardados: X_train_pca_{n}.npy, X_test_pca_{n}.npy, modelo_pca_{n}.pkl")
 
-    # Guardar resultados
-    if mejor_X_train is None:
-        print("No se encontraron clusters válidos para ningún PCA. No se guardará archivo PCA.")
-        return
-    else:
-        X_train_norm = normalize(mejor_X_train)
-        etiquetas_finales = dbscan(X_train_norm, eps=eps, min_pts=min_pts,metric=metric)
-        visualizar_clusters_directo(mejor_X_train, etiquetas_finales, f"Clusters finales ({tipo_vectorizacion})")
+        # Selección simple del mejor PCA por varianza explicada total
+        if var_total > mejor_varianza:
+            mejor_varianza = var_total
+            mejor_pca = pca
+            mejor_n = n
+            mejor_X_train = X_train_reducido
+            mejor_X_test = X_test_reducido
 
 
-    mejor_X_train = np.asarray(mejor_X_train, dtype=np.float32)
-    np.save("X_train_pca_best.npy", mejor_X_train)
-
-    mejor_X_test = np.asarray(mejor_X_test, dtype=np.float32)
-    np.save("X_test_pca_best.npy", mejor_X_test)
-
-
+        # Guardar los resultados "best"
+    np.save("X_train_pca_best.npy", np.asarray(mejor_X_train, dtype=np.float32))
+    np.save("X_test_pca_best.npy", np.asarray(mejor_X_test, dtype=np.float32))
     joblib.dump(mejor_pca, "modelo_pca_best.pkl")
 
+    print(f"\nMejor PCA: n_components={mejor_n}, varianza explicada total={mejor_varianza}")
 
-    X_train_norm = normalize_rows(mejor_X_train, copy=False)  # usa tu helper
-    np.save("X_train_pca_best_norm.npy", X_train_norm)
 
-    print(f"🏆 Mejor reducción: {mejor_n} componentes con score combinado={mejor_score:.3f}")
-    
 
 #--------------------------------------------------------------------------------------
 
@@ -962,22 +922,51 @@ def plot_top_terms_per_cluster_tfidf(vectorizer, X_tfidf, labels, topn=10, titul
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    tipo_vectorizacion ="robertuito" # "TfidF" o "robertuito"
-    eps=0.1
-    min_pts=5
-   
-    metrica="coseno"  # "coseno" o "euclidiana"
-    
+    import numpy as np
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import normalize
+    import os
+
+    tipo_vectorizacion = "robertuito"
+    eps = 0.1
+    min_pts = 5
+    metrica = "coseno"
+
     agrupar_train_test()
-    #preprocesar_datos(tipo_vectorizacion)
-
-    # Vectorización con TfidF + PCA
     vectorizar_datos(tipo_vectorizacion)
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[100,200],eps=eps, min_pts=min_pts,metric=metrica)
 
-    # Clustering manual DBSCAN
-    #clustering_DBSCAN(tipo_vectorizacion, eps=20, min_pts=5)
+    # Reducir dimensiones
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[50,100,200])
 
-    texto = "Me quiero pegar un tiro y tirarme por la ventana"
-    resultado = nueva_instancia_a_clusterizar(texto,  eps=eps,  metrica=metrica)
-    print(resultado)
+    # Cargar la mejor reducción guardada
+    Xpca_path = "X_train_pca_best.npy"
+    if not os.path.exists(Xpca_path):
+        raise FileNotFoundError(f"No existe {Xpca_path}. Ejecuta PCA_reduccion_dimensionalidad antes.")
+
+    Xpca = np.load(Xpca_path).astype(np.float32)
+
+    #Normalizar
+    Xpca_norm = normalize(Xpca, norm="l2", axis=1).astype(np.float32)
+
+    #DBSCAN
+    etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
+    np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
+
+
+    #Preparar datos  para visualizar
+    if Xpca.shape[1] > 2:
+        pca_vis = PCA(n_components=2, random_state=42)
+        X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
+    else:
+        X_vis = Xpca.astype(np.float32)
+
+    visualizar_clusters_directo(X_vis, etiquetas, titulo=f"Clusters (eps={eps}, min_pts={min_pts})")
+
+    #Resumen
+    labels_arr = np.array(etiquetas, dtype=int)
+    num_clusters = len(set(labels_arr)) - (1 if -1 in labels_arr else 0)
+    num_noise = int((labels_arr == -1).sum())
+    total = len(labels_arr)
+    print(f"Clusters encontrados: {num_clusters}")
+    print(f"Puntos ruido: {num_noise} ({100 * num_noise / total:.1f}%)")
+    print("Etiquetas guardadas en: labels_dbscan.npy")
