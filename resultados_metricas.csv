@@ -1,0 +1,3 @@
+metrica_combinada,vectorizacion,PCA_componentes,eps,min_pts,clusters,ruido,silhouette,calinski,davies,ARI,NMI,Homogeneity,Completeness,V_measure
+0.2706676359176636,robertuito,100,0.1,5,13,12026,0.5110938549041748,30.241416931152344,0.9391251400628305,,,,,
+0.3622082147598267,robertuito,200,0.1,5,14,12074,0.677297830581665,47.11859893798828,0.8028722303443708,,,,,

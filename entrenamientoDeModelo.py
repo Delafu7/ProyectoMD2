@@ -307,7 +307,7 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         plot_cluster_sizes(etiquetas, titulo="Tamaño clusters PCA=...")
         plot_centroid_distance_matrix(X_train_reducido, etiquetas, metric="cosine")
         plot_silhouette_per_sample(X_train_reducido, etiquetas)
-        plot_2d_embedding_scatter(X_train_reducido, etiquetas, method="umap") 
+        #plot_2d_embedding_scatter(X_train_reducido, etiquetas, method="umap") 
         evaluar_y_guardar_metricas(X_pca=X_train_reducido,
             labels=etiquetas,
             eps=eps,
@@ -614,6 +614,7 @@ def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_
     silhouette = silhouette_score(X_filtrado, labels_filtrados, metric="cosine")
     calinski = calinski_harabasz_score(X_filtrado, labels_filtrados)
     davies = davies_bouldin_score(X_filtrado, labels_filtrados)
+    score_combinado = (silhouette + calinski / 1000) / 2
 
     # --- Métricas externas (si hay etiquetas verdaderas) ---
     ari = nmi = h = c = v = np.nan
@@ -631,6 +632,7 @@ def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_
 
     # Crear registro
     fila = {
+        "metrica_combinada": score_combinado,
         "vectorizacion": tipo_vectorizacion,
         "PCA_componentes": n_componentes,
         "eps": eps,
@@ -655,7 +657,7 @@ def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_
         df_fila.to_csv(archivo_csv, index=False)
 
     print(f" Métricas guardadas en {archivo_csv}")
-    print(f" Clusters: {num_clusters}, Silhouette={silhouette:.3f}, CH={calinski:.1f}, DB={davies:.3f}")
+    print(f" Clusters: {num_clusters} , Score_Combinado={score_combinado:.3f} , Silhouette={silhouette:.3f}, CH={calinski:.1f}, DB={davies:.3f}")
 
     return fila
 
