@@ -612,42 +612,6 @@ def visualizar_clusters_por_etiqueta(X, etiquetas, titulo="Clusters DBSCAN"):
     plt.show()
 
 
-def calculoDeIndices(modelo, labels_train=None, labels_test=None):
-    # Carga de datos PCA desde archivos .npy
-    X_train_pca = np.load("X_train_pca_best.npy")
-    X_test_pca = np.load("X_test_pca_best.npy")
-
-    #  Métricas en TRAIN
-    silhouette_train = silhouette_score(X_train_pca, labels_train)
-    davies_train = davies_bouldin_score(X_train_pca, labels_train)
-    calinski_train = calinski_harabasz_score(X_train_pca, labels_train)
-
-    #  Métricas en TEST
-    if labels_test is None:
-        if hasattr(modelo, "predict"):
-            labels_test = modelo.predict(X_test_pca)
-        else:
-            labels_test = modelo.fit_predict(X_test_pca)
-
-    silhouette_test = silhouette_score(X_test_pca, labels_test)
-    davies_test = davies_bouldin_score(X_test_pca, labels_test)
-    calinski_test = calinski_harabasz_score(X_test_pca, labels_test)
-
-    # Devolver resultados como diccionario
-    resultados = {
-        "silhouette_train": silhouette_train,
-        "davies_train": davies_train,
-        "calinski_train": calinski_train,
-        "silhouette_test": silhouette_test,
-        "davies_test": davies_test,
-        "calinski_test": calinski_test
-    }
-    print(f"Silhouette score: {silhouette_test}"
-          f" davies score: {davies_test}"
-          f" calinski score: {calinski_test}")
-
-    return resultados
-
 def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_vectorizacion="robertuito", y_true=None, archivo_csv="resultados_metricas.csv"):
     """
     Calcula métricas de evaluación del clustering y las guarda en un CSV.
@@ -741,12 +705,6 @@ def normalize_rows(X, copy=True):
     return normalize(X, norm='l2', axis=1, copy=copy).astype(np.float32)
 import ast
 
-def _mean_pooling(model_output, attention_mask):
-    last_hidden = model_output.last_hidden_state           # (B, L, H)
-    mask = attention_mask.unsqueeze(-1).type(last_hidden.dtype)
-    summed = torch.sum(last_hidden * mask, dim=1)          # (B, H)
-    counts = torch.clamp(mask.sum(dim=1), min=1e-9)        # (B, 1)
-    return summed / counts                                 # (B, H)
 
 def nueva_instancia_a_clusterizar(texto, csv_path, pca_path, model_name="pysentimiento/robertuito-base-uncased",
                             max_length=128, device=None, threshold=None):
@@ -1076,13 +1034,12 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.1]
-    min_pts_list = [3]
+    eps_list = [0.4]
+    min_pts_list = [35]
 
     best_sil = -np.inf
     best_combo = (eps, min_pts)
     best_labels = None
-
     for e in eps_list:
         for m in min_pts_list:
                 tmp = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica, train=train)
@@ -1166,12 +1123,11 @@ if __name__ == "__main__":
 
     res = nueva_instancia_a_clusterizar(
         "Jajajajajajajajaja cara llorando de risa cara llorando de risa cara llorando de risa",
-        csv_path="mensajes_y_labels_0.1_3.csv",
+        csv_path=f"mensajes_y_labels_{eps}_{min_pts}.csv",
         pca_path="modelo_pca_best.pkl",
         threshold=0.5
     )
     print(res)
-
     #Resumen
     labels_arr = np.array(etiquetas, dtype=int)
     num_clusters = len(set(labels_arr)) - (1 if -1 in labels_arr else 0)
