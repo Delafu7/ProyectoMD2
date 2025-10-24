@@ -457,17 +457,24 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
         lab = int(etiquetas[i])
         embedding = X_train[i].astype(float).tolist()
         emb_json = json.dumps(embedding, ensure_ascii=False)
-        filas.append((mensaje, lab))
+        filas.append((mensaje, lab, emb_json))
 
     # emparejar y guardar
     pares = list(zip(mensajes, etiquetas))
 
-    nombre_npy = f"mensajes_y_labels_{tipo_vectorizacion}.npy"
-    np.save(nombre_npy, np.array(pares, dtype=object), allow_pickle=True)
+    #nombre_npy = f"mensajes_y_labels_{tipo_vectorizacion}.npy"
+    #np.save(nombre_npy, np.array(pares, dtype=object), allow_pickle=True)
 
-    nombre_csv = f"mensajes_y_labels_{tipo_vectorizacion}.csv"
-    df = pd.DataFrame(filas, columns=["mensaje", "cluster"])
+
+    nombre_base = f"mensajes_y_labels_{eps}_{min_pts}"
+    nombre_csv = f"{nombre_base}.csv"
+    contador = 1
+    while os.path.exists(nombre_csv):
+        nombre_csv = f"{nombre_base}_{contador}.csv"
+        contador += 1
+    df = pd.DataFrame(filas, columns=["mensaje", "cluster","embedding"])
     df.to_csv(nombre_csv, index=False, encoding="utf-8")
+
 
 
     num_clusters = len(set([l for l in etiquetas if l != -1]))
@@ -953,7 +960,7 @@ if __name__ == "__main__":
     agrupar_train_test()
     vectorizar_datos(tipo_vectorizacion)
 
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[50,100,200])
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[700])
 
     #Cargar
     Xpca_path = "X_train_pca_best.npy"
@@ -965,8 +972,8 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.1,0.12,0.15,0,2]
-    min_pts_list = [5,7,8,10,11,15,20]
+    eps_list = [0.4]
+    min_pts_list = [35]
 
     best_sil = -np.inf
     best_combo = (eps, min_pts)
@@ -986,10 +993,15 @@ if __name__ == "__main__":
                     sil = float(silhouette_score(Xpca_norm[mask], tmp[mask], metric='cosine'))
                 else:
                     sil = -1.0
-                n_componentes_usado = Xpca.shape[1]
-                resultados = evaluar_y_guardar_metricas(X_pca=Xpca, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
 
-                print(f"Prueba eps={e}, min_pts={m} -> clusters={n_clusters}, silhouette={sil:.4f}")
+                mask = tmp != -1
+                n_clusters = len(set(tmp[mask])) if np.sum(mask) > 0 else 0
+
+                if n_clusters >= 2:
+                    n_componentes_usado = Xpca.shape[1]
+                    resultados = evaluar_y_guardar_metricas(X_pca=Xpca, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
+                    print(f"Silhouette: {resultados['silhouette']}, Calinski: {resultados['calinski']}, Davies: {resultados['davies']}")
+
 
                 # Guardar mejor por silhouette
                 if sil > best_sil:
@@ -998,8 +1010,9 @@ if __name__ == "__main__":
                     best_labels = tmp.copy()
 
                 # Guardar etiquetas de esta configuración por si quieres revisarlas luego
-                fname_labels = f"labels_dbscan_eps{str(e).replace('.', '_')}_min{m}.npy"
-                np.save(fname_labels, tmp)
+                # TODO quitar los coments de abajo
+                #fname_labels = f"labels_dbscan_eps{str(e).replace('.', '_')}_min{m}.npy"
+                #np.save(fname_labels, tmp)
 
 
     # Si no se encontró combinación con ≥2 cluster válidos, usar la original
@@ -1019,20 +1032,20 @@ if __name__ == "__main__":
 
 
     #Preparar datos  para visualizar
-    if Xpca.shape[1] > 2:
-        pca_vis = PCA(n_components=2, random_state=42)
-        X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
-    else:
-        X_vis = Xpca.astype(np.float32)
+    #if Xpca.shape[1] > 2:
+    pca_vis = PCA(n_components=2, random_state=42)
+    X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
+    #else:
+    X_vis = Xpca.astype(np.float32)
 
     visualizar_clusters_directo(X_vis, etiquetas, titulo=f"Clusters (eps={eps}, min_pts={min_pts})")
 
     # Preparar representación 2D
-    if Xpca.shape[1] > 2:
-        pca_vis = PCA(n_components=2, random_state=42)
-        X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
-    else:
-        X_vis = Xpca.astype(np.float32)
+    #if Xpca.shape[1] > 2:
+    pca_vis = PCA(n_components=2, random_state=42)
+    X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
+    #else:
+    X_vis = Xpca.astype(np.float32)
 
 
     #Visualizaciones
