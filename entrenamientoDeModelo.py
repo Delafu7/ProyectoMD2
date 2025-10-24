@@ -1099,7 +1099,7 @@ if __name__ == "__main__":
     min_pts = 13
     metrica = "coseno"
     graficarDatos = False
-    train= False #  Si es True, se entrena el modelo DBSCAN desde cero. Si es False, se cargan las etiquetas ya generadas.
+    train= True #  Si es True, se entrena el modelo DBSCAN desde cero. Si es False, se cargan las etiquetas ya generadas.
 
     # Preparar datos
     agrupar_train_test()
