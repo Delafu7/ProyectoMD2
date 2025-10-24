@@ -739,135 +739,89 @@ def normalize_rows(X, copy=True):
     """
     X = np.asarray(X, dtype=np.float32)
     return normalize(X, norm='l2', axis=1, copy=copy).astype(np.float32)
+import ast
 
-def nueva_instancia_a_clusterizar(instancia,model_name="pysentimiento/robertuito-base-uncased",eps=0.1, metrica="coseno",max_length=128,intentar_centroide=True):
+def _mean_pooling(model_output, attention_mask):
+    last_hidden = model_output.last_hidden_state           # (B, L, H)
+    mask = attention_mask.unsqueeze(-1).type(last_hidden.dtype)
+    summed = torch.sum(last_hidden * mask, dim=1)          # (B, H)
+    counts = torch.clamp(mask.sum(dim=1), min=1e-9)        # (B, 1)
+    return summed / counts                                 # (B, H)
+
+def nueva_instancia_a_clusterizar(texto, csv_path, pca_path, model_name="pysentimiento/robertuito-base-uncased",
+                            max_length=128, device=None, threshold=None):
     """
-    Asigna una nueva instancia a un cluster usando el modelo entrenado.
-
-    instancia: texto de la nueva instancia
-    model_name: modelo de HuggingFace para embeddings
-    eps: umbral de distancia para asignación
-    metrica: "coseno" o "euclidiana"
-    max_length: longitud máxima para el tokenizer
-    intentar_centroide: si True, usa centroides como fallback
-
-    Devuelve un diccionario con:
-    - instancia: texto original
-    - etiqueta_asignada: etiqueta asignada (-1 si ruido)
-    - distancia: distancia al vecino más cercano o centroide
-    - indice_vecino: índice del vecino más cercano en el train (o -1 si centroide)
-    - centroide_usado: dict con 'etiqueta' y 'distancia' si se usó centroide, o None
+      - csv_path: CSV con columnas 'mensaje','cluster','embedding'
+      - pca_path: reductor usado en entrenamiento
+    Devuelve dict con vecino mas cercano y centroide más cercano.
     """
+    # CSV
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(csv_path)
+    df = pd.read_csv(csv_path, encoding="utf-8")
+    msgs = df["mensaje"].astype(str).tolist()
+    labels = df["cluster"].astype(int).to_numpy()
+    X = np.vstack([np.asarray(ast.literal_eval(s), dtype=np.float32) for s in df["embedding"].astype(str).tolist()])
 
-    # rutas esperadas
-    ruta_reductor = None
-    for candidato in ["modelo_pca_best.pkl"]:
-        if os.path.exists(candidato):
-            ruta_reductor = candidato
-            break
-    if ruta_reductor is None:
-        for f in os.listdir():
-            if (f.endswith(".pkl") or f.endswith(".joblib")) and "pca" in f.lower():
-                ruta_reductor = f
-                break
-    if ruta_reductor is None:
-        return {"error": "No se encontró reductor (modelo_pca_best.pkl)."}
-
-    ruta_X_train_pca = "X_train_pca_best.npy"
-    if not os.path.exists(ruta_X_train_pca):
-        return {"error": f"No se encontró {ruta_X_train_pca}."}
-
-    archivos_labels = [f for f in os.listdir() if f.startswith("labels") and f.endswith(".npy")]
-    if len(archivos_labels) == 0:
-        return {"error": "No se encontró archivo de etiquetas labels_*.npy."}
-    ruta_labels = archivos_labels[0]
-
-    # generar embedding
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    #embedding nuevo con RoBERTuito
+    device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+    tok = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     model = AutoModel.from_pretrained(model_name).to(device)
     model.eval()
-    with torch.inference_mode():
-        enc = tokenizer([instancia], truncation=True, padding="longest", max_length=max_length, return_tensors="pt")
-        enc = {k: v.to(device) for k, v in enc.items()}
+    with torch.no_grad():
+        enc = tok([texto], truncation=True, padding=True, max_length=max_length, return_tensors="pt")
+        enc = {k: v.to(device) for k,v in enc.items()}
         out = model(**enc)
-        last_hidden = out.last_hidden_state
         mask = enc["attention_mask"].unsqueeze(-1).float()
-        summed = torch.sum(last_hidden * mask, dim=1)
-        counts = torch.sum(mask, dim=1).clamp(min=1.0)
-        emb = (summed / counts).cpu().numpy().astype(np.float32)
+        emb_raw = ((out.last_hidden_state * mask).sum(1) / mask.sum(1)).cpu().numpy().astype(np.float32)
 
-    # cargar reductor
-    try:
-        reductor = joblib.load(ruta_reductor)
-    except Exception as e:
-        return {"error": f"Error cargando reductor: {e}"}
-    if not hasattr(reductor, "transform"):
-        return {"error": "El objeto reductor no tiene método transform."}
+    #aplicar PCA
+    if not os.path.exists(pca_path):
+        raise FileNotFoundError(pca_path)
+    pca = joblib.load(pca_path)
+    emb_pca = pca.transform(emb_raw).astype(np.float32)   # (1, d)
+    emb_norm = normalize(emb_pca, norm="l2", axis=1).ravel()  # (d,)
 
-    # transformar y normalizar
-    try:
-        X_new = reductor.transform(emb).astype(np.float32)
-    except Exception as e:
-        return {"error": f"Error al transformar la instancia: {e}"}
-    X_new_norm = normalize(X_new, norm='l2', axis=1).astype(np.float32)
+    X_norm = normalize(X, norm="l2", axis=1)
 
-    # cargar train reducido y labels
-    try:
-        X_train = np.load(ruta_X_train_pca).astype(np.float32)
-    except Exception as e:
-        return {"error": f"Error cargando {ruta_X_train_pca}: {e}"}
-    try:
-        labels_train = np.load(ruta_labels).astype(int)
-    except Exception as e:
-        return {"error": f"Error cargando {ruta_labels}: {e}"}
-    X_train_norm = normalize(X_train, norm='l2', axis=1).astype(np.float32)
+    #vecino mas cercano
+    sims = X_norm.dot(emb_norm)
+    best_idx = int(np.argmax(sims))
+    best_sim = float(sims[best_idx])
+    best_label = int(labels[best_idx])
+    best_msg = msgs[best_idx]
+    assigned = best_label if (threshold is None or best_sim >= threshold) else -1
 
-    # vecino más cercano
-    nn_metric = "cosine" if metrica == "coseno" else "euclidean"
-    nbrs = NearestNeighbors(n_neighbors=1, metric=nn_metric, n_jobs=-1).fit(X_train_norm)
-    dist, idx = nbrs.kneighbors(X_new_norm)
-    dist_val = float(dist.ravel()[0])
-    idx0 = int(idx.ravel()[0])
-    etiqueta_vecino = int(labels_train[idx0])
-    etiqueta_asignada = etiqueta_vecino if (dist_val <= eps and etiqueta_vecino != -1) else -1
-
-    # fallback por centroides
-    centroide_verificado = False
-    centroide_elegido = {"etiqueta": None, "distancia": None}
-    if etiqueta_asignada == -1 and intentar_centroide:
-        centroide_verificado = True
-        sin_ruido = [l for l in np.unique(labels_train) if l != -1]
-        if len(sin_ruido) > 0:
-            centroides = {lab: X_train_norm[labels_train == lab].mean(axis=0) for lab in sin_ruido}
-            C = np.vstack(list(centroides.values())).astype(np.float32)
-            claves = list(centroides.keys())
-            if nn_metric == "cosine":
-                puntos = np.dot(C, X_new_norm.ravel())
-                dist_centroides = (1.0 - np.clip(puntos, -1.0, 1.0)).astype(np.float32)
-            else:
-                dif = C - X_new_norm.ravel()
-                dist_centroides = np.linalg.norm(dif, axis=1).astype(np.float32)
-            min_idx = int(np.argmin(dist_centroides))
-            min_dist = float(dist_centroides[min_idx])
-            min_label = int(claves[min_idx])
-            centroide_elegido = {"etiqueta": min_label, "distancia": min_dist}
-            if min_dist <= eps:
-                etiqueta_asignada = min_label
-                dist_val = min_dist
-                idx0 = -1
+    #centroides por cluster
+    unique = sorted(set(labels.tolist()))
+    unique = [u for u in unique if u != -1]
+    centroid_label = None
+    centroid_sim = None
+    if len(unique) > 0:
+        cents = []
+        labs = []
+        for u in unique:
+            mask = (labels == u)
+            c = X_norm[mask].mean(axis=0)
+            c = c / (np.linalg.norm(c) + 1e-12)
+            cents.append(c)
+            labs.append(int(u))
+        C = np.vstack(cents)
+        sims_c = C.dot(emb_norm)
+        i_c = int(np.argmax(sims_c))
+        centroid_label = labs[i_c]
+        centroid_sim = float(sims_c[i_c])
 
     return {
-        "instancia": instancia,
-        "etiqueta_asignada": int(etiqueta_asignada),
-        "indice_vecino": int(idx0),
-        "etiqueta_vecino": int(etiqueta_vecino),
-        "distancia_al_vecino": float(dist_val),
-        "centroide_verificado": centroide_verificado,
-        "centroide_elegido": centroide_elegido,
-        "archivo_labels_usado": ruta_labels,
-        "archivo_modelo_pca": ruta_reductor
+        "cluster_vecino": int(best_label),
+        "similitud_cluster": best_sim,
+        "mensaje": best_msg,
+        "vecino_asignado": int(assigned),
+        "centroide": (int(centroid_label) if centroid_label is not None else None),
+        "similitud_centroide": (centroid_sim if centroid_sim is not None else None),
+        "mejor_centroide": (centroid_sim is not None and centroid_sim > best_sim)
     }
+
 #--------------------------------------------------------------------------------------
 def plot_metrics_from_csv(archivo_csv="resultados_metricas.csv", columnas=None, figsize=(10,5)):
     """
@@ -1107,7 +1061,7 @@ if __name__ == "__main__":
     vectorizar_datos(tipo_vectorizacion)
 
     # Reducción de dimensionalidad
-    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[700])
+    PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[400])
 
     #Cargar
     if train:
@@ -1122,8 +1076,8 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.3]
-    min_pts_list = [35]
+    eps_list = [0.1]
+    min_pts_list = [3]
 
     best_sil = -np.inf
     best_combo = (eps, min_pts)
@@ -1148,8 +1102,8 @@ if __name__ == "__main__":
                 n_clusters = len(set(tmp[mask])) if np.sum(mask) > 0 else 0
 
                 if n_clusters >= 2:
-                    n_componentes_usado = Xpca.shape[1]
-                    resultados = evaluar_y_guardar_metricas(X_pca=Xpca, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
+                    n_componentes_usado = Xpca_norm.shape[1]
+                    resultados = evaluar_y_guardar_metricas(X_pca=Xpca_norm, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
                     print(f"Silhouette: {resultados['silhouette']}, Calinski: {resultados['calinski']}, Davies: {resultados['davies']}")
 
 
@@ -1182,22 +1136,15 @@ if __name__ == "__main__":
     #Preparar datos  para visualizar
     #if Xpca.shape[1] > 2:
     pca_vis = PCA(n_components=2, random_state=42)
-    X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
+    X_vis = pca_vis.fit_transform(Xpca_norm).astype(np.float32)
     #else:
-    X_vis = Xpca.astype(np.float32)
+    #X_vis = Xpca_norm.astype(np.float32)
 
     visualizar_clusters_directo(X_vis, etiquetas, titulo=f"Clusters (eps={eps}, min_pts={min_pts})")
 
-    # Preparar representación 2D
-    #if Xpca.shape[1] > 2:
-    pca_vis = PCA(n_components=2, random_state=42)
-    X_vis = pca_vis.fit_transform(Xpca).astype(np.float32)
-    #else:
-    X_vis = Xpca.astype(np.float32)
 
 
     #Visualizaciones
-    visualizar_clusters_directo(X_vis, etiquetas, titulo=f"Clusters (eps={eps}, min_pts={min_pts})")
 
     """visualizar_clusters_por_etiqueta(Xpca, etiquetas, f"Clusters PCA (embedding completo)")
     plot_cluster_sizes(etiquetas, titulo="Tamaño clusters PCA (embedding completo)")
@@ -1217,9 +1164,13 @@ if __name__ == "__main__":
 
 
 
-    texto = ""
-    resultado = nueva_instancia_a_clusterizar(texto,  eps=eps,  metrica=metrica)
-    print(resultado)
+    res = nueva_instancia_a_clusterizar(
+        "Jajajajajajajajaja cara llorando de risa cara llorando de risa cara llorando de risa",
+        csv_path="mensajes_y_labels_0.1_3.csv",
+        pca_path="modelo_pca_best.pkl",
+        threshold=0.5
+    )
+    print(res)
 
     #Resumen
     labels_arr = np.array(etiquetas, dtype=int)
