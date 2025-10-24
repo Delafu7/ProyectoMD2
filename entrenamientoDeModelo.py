@@ -1034,10 +1034,10 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.4]
-    min_pts_list = [35]
+    eps_list = [0.1,0.12,0.15,0.2]
+    min_pts_list = [2,3,5,7]
 
-    best_sil = -np.inf
+    best_score = -np.inf
     best_combo = (eps, min_pts)
     best_labels = None
     for e in eps_list:
@@ -1049,24 +1049,30 @@ if __name__ == "__main__":
                 mask = tmp != -1
                 n_clusters = len(set(tmp[mask])) if np.sum(mask) > 0 else 0
 
-                if n_clusters >= 2:
+                if n_clusters >= 5:
                     # Silhouette sobre los puntos no-ruido
                     sil = float(silhouette_score(Xpca_norm[mask], tmp[mask], metric='cosine'))
+                    cal = float(calinski_harabasz_score(Xpca_norm[mask], tmp[mask]))
+
+                    score_combinado = (sil + cal / 1000) / 2
+
                 else:
                     sil = -1.0
+                    cal = -1.0
+                    score_combinado = -1.0
 
                 mask = tmp != -1
                 n_clusters = len(set(tmp[mask])) if np.sum(mask) > 0 else 0
 
-                if n_clusters >= 2:
+                if n_clusters >= 5:
                     n_componentes_usado = Xpca_norm.shape[1]
                     resultados = evaluar_y_guardar_metricas(X_pca=Xpca_norm, labels=tmp, eps=e, min_pts=m,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion, y_true=None)
                     print(f"Silhouette: {resultados['silhouette']}, Calinski: {resultados['calinski']}, Davies: {resultados['davies']}")
 
 
                 # Guardar mejor por silhouette
-                if sil > best_sil:
-                    best_sil = sil
+                if score_combinado > best_score:
+                    best_score = score_combinado
                     best_combo = (e, m)
                     best_labels = tmp.copy()
 
@@ -1081,7 +1087,7 @@ if __name__ == "__main__":
         etiquetas = np.asarray(etiquetas, dtype=int)
     else:
         best_eps, best_min_pts = best_combo
-        print(f"Mejor combo: eps={best_eps}, min_pts={best_min_pts}, silhouette={best_sil:.4f}")
+        print(f"Mejor combo: eps={best_eps}, min_pts={best_min_pts}, silhouette={best_score:.4f}")
         etiquetas = best_labels
         eps = best_eps
         min_pts = best_min_pts
