@@ -21,6 +21,7 @@ from tqdm import tqdm
 from collections import defaultdict
 from sklearn.preprocessing import normalize
 import matplotlib.cm as cm
+
 #import matplotlib
 #matplotlib.use('Agg')
 import pandas as pd
@@ -44,6 +45,14 @@ stemmer = SpanishStemmer()
 # Metodos/Funciones
 
 def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", salida_test="test.json"):
+    """
+    Agrupa todos los mensajes de Train y Test en dos archivos JSON separados.
+    Cada archivo tendrá la estructura: {"mensajes": [lista de mensajes]}
+    
+    ruta_base: ruta base donde están las carpetas de categorías
+    salida_train: archivo de salida para Train
+    salida_test: archivo de salida para Test
+    """
     mensajes_train = []
     mensajes_test = []
 
@@ -93,6 +102,17 @@ def agrupar_train_test(ruta_base="MentalRiskEs2023", salida_train="train.json", 
 #Metodos de preprocesamiento de texto
 
 def limpiar_texto(texto):
+    """Limpia y tokeniza un texto en español.
+    Pasos:
+    - Minúsculas
+    - Quitar URLs, menciones y hashtags
+    - Quitar emojis y caracteres no alfabéticos
+    - Quitar puntuación
+    - Tokenizar por espacios
+    - Eliminar stopwords y palabras muy cortas
+    
+    Retorna lista de tokens.
+    """
     # Minúsculas
     texto = texto.lower()
     
@@ -120,6 +140,11 @@ def limpiar_texto(texto):
 
 
 def preprocesar_datos(tipo_vectorizacion):
+    """Preprocesa los datos de train y test según el tipo de vectorización.
+    tipo_vectorizacion: "robertuito" o "TfidF"
+    Genera dos archivos JSON: train_preprocesado.json y test_preprocesado.json
+
+    """
     # Cargar mensajes
     with open("train.json", "r", encoding="utf-8") as f:
         train_data = json.load(f)
@@ -159,6 +184,8 @@ def preprocesar_datos(tipo_vectorizacion):
 #--------------------------------------------------------------------------------------
 
 def vectorizar_TfidF():
+    """Vectoriza los datos preprocesados usando TF-IDF.
+    Genera archivos X_train_tfidf.npy, X_test_tfidf.npy y vocabulary.json"""
     # Cargar datos preprocesados (lista de dicts {"persona","mensajes"})
     with open("train_preprocesado.json", "r", encoding="utf-8") as f:
         train_pre = json.load(f)
@@ -203,6 +230,12 @@ def generar_embeddings_robertuito(
     max_length=128,
     batch_size=32
 ):
+    """Genera embeddings usando RoBERTuito.
+    Guarda en X_train_robertuito.npy y X_test_robertuito.npy
+    model_name: nombre del modelo en HuggingFace
+    max_length: longitud máxima de los textos
+    batch_size: tamaño de lote para procesamiento
+    """
     # Cargar datos
     with open("train.json", "r", encoding="utf-8") as f:
         train_pre = json.load(f)
@@ -251,11 +284,14 @@ def generar_embeddings_robertuito(
     np.save("X_train_robertuito.npy", X_train_emb)
     np.save("X_test_robertuito.npy", X_test_emb)
 
-    print("✅ Embeddings con RoBERTuito generados:")
+    print("Embeddings con RoBERTuito generados:")
     print("   Train:", X_train_emb.shape)
     print("   Test :", X_test_emb.shape)
     
 def vectorizar_datos(tipo_vectorizacion="TfidF"):
+    """Vectoriza los datos según el tipo elegido.
+    tipo_vectorizacion: "TfidF" o "robertuito"
+    """
     if tipo_vectorizacion == "TfidF":
         vectorizar_TfidF()
     elif tipo_vectorizacion == "robertuito" and not os.path.exists("X_train_robertuito.npy"):
@@ -270,7 +306,11 @@ def vectorizar_datos(tipo_vectorizacion="TfidF"):
 
 
 def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100]):
-
+    """Aplica PCA para reducción de dimensionalidad.
+    tipo_vectorizacion: "TfidF" o "robertuito"
+    n_componentes: lista de números de componentes a probar
+    """    
+    # Cargar datos vectorizados
     if tipo_vectorizacion == "TfidF":
         X_train_data = np.load("X_train_tfidf.npy")
         X_test_data  = np.load("X_test_tfidf.npy")
@@ -298,20 +338,14 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
         X_train_reducido = pca.fit_transform(X_train_data)
         X_test_reducido = pca.transform(X_test_data)
 
-        # var_total TODO
         var_total = float(np.sum(pca.explained_variance_ratio_))
-        # error de reconstruccion TODO
+
         X_reconstruido = pca.inverse_transform(X_train_reducido)
         error_recon = float(np.mean(np.square(X_train_data - X_reconstruido)))
 
         print(f"Varianza explicada total (n={n}): {var_total}")
         print(f"Error de reconstrucción (n={n}): {error_recon}")
 
-        # Guardar resultados intermedios
-        #np.save(f"X_train_pca_{n}.npy", X_train_reducido.astype(np.float32))
-        #np.save(f"X_test_pca_{n}.npy", X_test_reducido.astype(np.float32))
-        #joblib.dump(pca, f"modelo_pca_{n}.pkl")
-        #print(f"Guardados: X_train_pca_{n}.npy, X_test_pca_{n}.npy, modelo_pca_{n}.pkl")
 
         # Selección simple del mejor PCA por varianza explicada total
         if var_total > mejor_varianza:
@@ -333,14 +367,9 @@ def PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[2,20,40,100
 
 #--------------------------------------------------------------------------------------
 
-
-""" def distancia_coseno(p1, p2):
-    #Distancia coseno entre dos vectores
-    cos_sim = np.dot(p1, p2) / (np.linalg.norm(p1) * np.linalg.norm(p2))
-    return 1 - cos_sim
-"""
 def distancia_coseno_vecs(M, v):
     """
+    Distancia coseno entre un vector y todas las filas de una matriz.
     M: matriz (n_samples, n_features)
     v: vector (n_features,)
     Devuelve array de distancias coseno 1 - cos_sim entre v y cada fila de M.
@@ -359,6 +388,7 @@ def distancia_coseno_vecs(M, v):
 
 def distancia_euclidiana_vecs(M, v):
     """
+    Distancia euclidiana entre un vector y todas las filas de una matriz.
     M: matriz (n_samples, n_features)
     v: vector (n_features,)
     Devuelve array de distancias euclidianas entre v y cada fila de M.
@@ -387,7 +417,15 @@ def region_query(datos, punto_idx, eps,metric):
     return vecinos
 
 def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts,metric):
-    """Expande un cluster agregando puntos densos"""
+    """Expande un cluster agregando puntos densos
+    datos: np.ndarray 2D
+    labels: lista de etiquetas
+    punto_idx: índice del punto inicial
+    vecinos: lista de índices de vecinos del punto inicial
+    cluster_id: id del cluster actual
+    eps: radio de vecindad
+    min_pts: mínimo de puntos para formar cluster
+    """
     labels[punto_idx] = cluster_id
     i = 0
     while i < len(vecinos):
@@ -403,9 +441,14 @@ def expand_cluster(datos, labels, punto_idx, vecinos, cluster_id, eps, min_pts,m
 
 def dbscan(datos, eps, min_pts,metric):
     """
+    Implementación básica de DBSCAN.
+
     datos: lista de puntos o np.ndarray (n_samples, n_features)
     eps: radio de vecindad
     min_pts: mínimo de puntos para formar cluster
+    metric: "coseno" o "euclidiana"
+
+    Devuelve lista de etiquetas por punto.
     """
     datos = np.asarray(datos, dtype=float)
     n = len(datos)
@@ -425,9 +468,17 @@ def dbscan(datos, eps, min_pts,metric):
     return labels
 
 
-def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
+def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None,train=True):
     """
     Aplica DBSCAN sobre los vectores reducidos (PCA) de la representación elegida.
+
+    datos: np.ndarray (n_samples, n_features) o None para cargar desde archivo
+    eps: radio de vecindad
+    min_pts: mínimo de puntos para formar cluster
+    metric: "coseno" o "euclidiana"
+    train: si True, carga mensajes de train.json; si False, de test.json
+    Devuelve lista de etiquetas por punto.
+
     """
     # Cargar datos reducidos
     X_train = np.asarray(datos, dtype=np.float32)
@@ -441,8 +492,12 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
     etiquetas = dbscan(datos_lista, eps=eps, min_pts=min_pts,metric=metric)
 
     # Conseguir los mensajes originales
-    with open("train.json", "r", encoding="utf-8") as f:
-        obj = json.load(f)
+    if train:
+        with open("train.json", "r", encoding="utf-8") as f:
+            obj = json.load(f)
+    else:
+        with open("test.json", "r", encoding="utf-8") as f:
+            obj = json.load(f)
     if not (isinstance(obj, dict) and "mensajes" in obj and isinstance(obj["mensajes"], list)):
         raise ValueError(" debe ser un dict con clave 'mensajes' -> lista de strings.")
     mensajes = obj["mensajes"]
@@ -492,7 +547,10 @@ def clustering_DBSCAN(datos=None, eps=0.5, min_pts=3,metric=None):
 #--------------------------------------------------------------------------------------
 
 def visualizar_clusters_directo(X, labels, titulo="Clusters DBSCAN"):
-    import matplotlib.cm as cm
+    """ Visualiza clusters en 2D.
+    X: np.ndarray (n_samples, 2) -> datos en 2D
+    labels: lista o array de etiquetas DBSCAN
+    """
 
     X = np.array(X)
     labels = np.array(labels)
@@ -594,6 +652,17 @@ def evaluar_y_guardar_metricas(X_pca, labels, eps, min_pts, n_componentes, tipo_
     """
     Calcula métricas de evaluación del clustering y las guarda en un CSV.
     Si hay etiquetas reales (y_true), calcula métricas externas también.
+
+    X_pca: np.ndarray (n_samples, n_features) -> datos reducidos
+    labels: lista o array de etiquetas DBSCAN
+    eps: parámetro DBSCAN
+    min_pts: parámetro DBSCAN
+    n_componentes: número de componentes PCA
+    tipo_vectorizacion: "robertuito" o "TfidF"
+    y_true: lista o array de etiquetas reales (opcional)
+    archivo_csv: ruta del archivo CSV donde guardar las métricas
+
+    Devuelve un diccionario con las métricas calculadas.
     """
 
     # Convertir a arrays numpy
@@ -664,10 +733,31 @@ def normalize_rows(X, copy=True):
     """
     Normaliza cada fila de X a norma L2 = 1.
     Devuelve un array float32.
+    X: np.ndarray 2D
+    copy: si True, no modifica X original
+
     """
     X = np.asarray(X, dtype=np.float32)
     return normalize(X, norm='l2', axis=1, copy=copy).astype(np.float32)
+
 def nueva_instancia_a_clusterizar(instancia,model_name="pysentimiento/robertuito-base-uncased",eps=0.1, metrica="coseno",max_length=128,intentar_centroide=True):
+    """
+    Asigna una nueva instancia a un cluster usando el modelo entrenado.
+
+    instancia: texto de la nueva instancia
+    model_name: modelo de HuggingFace para embeddings
+    eps: umbral de distancia para asignación
+    metrica: "coseno" o "euclidiana"
+    max_length: longitud máxima para el tokenizer
+    intentar_centroide: si True, usa centroides como fallback
+
+    Devuelve un diccionario con:
+    - instancia: texto original
+    - etiqueta_asignada: etiqueta asignada (-1 si ruido)
+    - distancia: distancia al vecino más cercano o centroide
+    - indice_vecino: índice del vecino más cercano en el train (o -1 si centroide)
+    - centroide_usado: dict con 'etiqueta' y 'distancia' si se usó centroide, o None
+    """
 
     # rutas esperadas
     ruta_reductor = None
@@ -949,6 +1039,8 @@ def plot_top_terms_per_cluster_tfidf(vectorizer, X_tfidf, labels, topn=10, titul
     # return df
 
 def graficar_metricas():
+    """ Lee el CSV de métricas y genera gráficas organizadas por PCA_componentes.
+    Genera subplots por métrica y guarda en carpetas y un heatmap de métrica combinada."""
     data = pd.read_csv("resultados_metricas.csv")
 
     # Eliminar duplicados por combinación de PCA, eps y min_pts
@@ -1001,20 +1093,27 @@ def graficar_metricas():
 
 if __name__ == "__main__":
 
-    #graficar_metricas()
+    # Parámetros
     tipo_vectorizacion = "robertuito"
     eps = 0.35
     min_pts = 13
     metrica = "coseno"
-    graficarDatos = False 
+    graficarDatos = False
+    train= False #  Si es True, se entrena el modelo DBSCAN desde cero. Si es False, se cargan las etiquetas ya generadas.
 
+    # Preparar datos
     agrupar_train_test()
+    #preprocesar_datos(tipo_vectorizacion) #Al final no es necesario preprocesar ya que empleamos Robertuito directamente, un modelo preentrenado.
     vectorizar_datos(tipo_vectorizacion)
 
+    # Reducción de dimensionalidad
     PCA_reduccion_dimensionalidad(tipo_vectorizacion, n_componentes=[700])
 
     #Cargar
-    Xpca_path = "X_train_pca_best.npy"
+    if train:
+        Xpca_path = "X_train_pca_best.npy"
+    else:
+        Xpca_path = "X_test_pca_best.npy"
     Xpca = np.load(Xpca_path).astype(np.float32)
 
     #Normalizar
@@ -1032,7 +1131,7 @@ if __name__ == "__main__":
 
     for e in eps_list:
         for m in min_pts_list:
-                tmp = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica)
+                tmp = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica, train=train)
                 tmp = np.asarray(tmp, dtype=int)
 
                 # Contar clusters validos
@@ -1060,16 +1159,14 @@ if __name__ == "__main__":
                     best_combo = (e, m)
                     best_labels = tmp.copy()
 
-                # Guardar etiquetas de esta configuración por si quieres revisarlas luego
-                # TODO quitar los coments de abajo
-                #fname_labels = f"labels_dbscan_eps{str(e).replace('.', '_')}_min{m}.npy"
-                #np.save(fname_labels, tmp)
+                # Guardar etiquetas de esta configuración para análisis posterior
+
 
 
     # Si no se encontró combinación con ≥2 cluster válidos, usar la original
     if best_labels is None:
         print("No se encontró combinación con >=2 clusters válidos; uso la combinación original.")
-        etiquetas = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica)
+        etiquetas = clustering_DBSCAN(Xpca_norm, eps=e, min_pts=m, metric=metrica, train=train)
         etiquetas = np.asarray(etiquetas, dtype=int)
     else:
         best_eps, best_min_pts = best_combo
