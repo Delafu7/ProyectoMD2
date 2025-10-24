@@ -1109,14 +1109,17 @@ if __name__ == "__main__":
 
     #Visualizaciones
 
-    """visualizar_clusters_por_etiqueta(Xpca, etiquetas, f"Clusters PCA (embedding completo)")
+    visualizar_clusters_por_etiqueta(Xpca_norm, etiquetas, f"Clusters PCA (embedding completo)")
     plot_cluster_sizes(etiquetas, titulo="Tamaño clusters PCA (embedding completo)")
-    plot_centroid_distance_matrix(Xpca, etiquetas, metric="cosine")
-    plot_silhouette_per_sample(Xpca, etiquetas)
-    plot_2d_embedding_scatter(Xpca, etiquetas, method="umap")"""
+    plot_centroid_distance_matrix(Xpca_norm, etiquetas, metric="cosine")
+    plot_silhouette_per_sample(Xpca_norm, etiquetas)
+    # plot_2d_embedding_scatter(Xpca_norm, etiquetas, method="umap")
 
     n_componentes_usado = Xpca.shape[1]
-    resultados = evaluar_y_guardar_metricas(X_pca=Xpca,labels=etiquetas,eps=eps,min_pts=min_pts,n_componentes=n_componentes_usado,tipo_vectorizacion=tipo_vectorizacion,y_true=None,)
+    resultados = evaluar_y_guardar_metricas(X_pca=Xpca_norm, labels=etiquetas, eps=eps, min_pts=min_pts,
+                                            n_componentes=n_componentes_usado, tipo_vectorizacion=tipo_vectorizacion,
+                                            y_true=None, )
+
 
     print("\n=== Resultados metricas ===")
     if resultados is not None:
