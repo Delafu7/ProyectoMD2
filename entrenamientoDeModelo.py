@@ -21,6 +21,8 @@ from tqdm import tqdm
 from collections import defaultdict
 from sklearn.preprocessing import normalize
 import matplotlib.cm as cm
+#import matplotlib
+#matplotlib.use('Agg')
 import pandas as pd
 from sklearn.manifold import TSNE
 try:
@@ -946,16 +948,65 @@ def plot_top_terms_per_cluster_tfidf(vectorizer, X_tfidf, labels, topn=10, titul
     print(df)  # si usas notebook; si no, imprime:
     # return df
 
+def graficar_metricas():
+    data = pd.read_csv("resultados_metricas.csv")
+
+    # Eliminar duplicados por combinación de PCA, eps y min_pts
+    data = data.drop_duplicates(subset=["PCA_componentes", "eps", "min_pts"])
+
+    # Lista de métricas y títulos
+    metricas = ["metrica_combinada", "silhouette", "calinski", "davies"]
+    titulos = ["Métrica Combinada", "Silhouette", "Calinski-Harabasz", "Davies-Bouldin"]
+
+    # Crear carpeta principal
+    os.makedirs("imagenes", exist_ok=True)
+
+    # Generar y guardar gráficas por cada valor de PCA
+    for pca_val in sorted(data["PCA_componentes"].unique()):
+        subset_pca = data[data["PCA_componentes"] == pca_val]
+        carpeta_pca = f"imagenes/PCA_{pca_val}"
+        os.makedirs(carpeta_pca, exist_ok=True)
+
+        for metrica, titulo in zip(metricas, titulos):
+            min_pts_vals = sorted(subset_pca["min_pts"].unique())
+            n_rows = int(np.ceil(len(min_pts_vals)/2))
+            plt.figure(figsize=(12, 4*n_rows))
+
+            for i, min_pts in enumerate(min_pts_vals, 1):
+                sub = subset_pca[subset_pca["min_pts"] == min_pts]
+                plt.subplot(n_rows, 2, i)
+                plt.plot(sub["eps"], sub[metrica], marker='o')
+                plt.title(f"{titulo} - min_pts={min_pts}")
+                plt.xlabel("eps")
+                plt.ylabel(metrica)
+                plt.grid(True)
+
+            plt.tight_layout()
+            plt.savefig(f"{carpeta_pca}/{metrica}_subplots.png", dpi=300)
+            plt.close()
+        print(f"Gráficas de métricas para PCA={pca_val} guardadas en {carpeta_pca}")
+        pivot = subset_pca.pivot(index="min_pts", columns="eps", values="metrica_combinada")
+        plt.figure(figsize=(8,6))
+        sns.heatmap(pivot, annot=True, fmt=".2f", cmap="viridis")
+        plt.title(f"Métrica Combinada (PCA={pca_val})")
+        plt.xlabel("eps")
+        plt.ylabel("min_pts")
+        plt.savefig(f"{carpeta_pca}/heatmap_combinada.png", dpi=300)
+        plt.close()
+    
+    print("Gráficas guardadas en la carpeta 'imagenes', sin duplicados y organizadas por PCA_componentes.")
+
 #--------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
 
-
+    #graficar_metricas()
     tipo_vectorizacion = "robertuito"
     eps = 0.35
     min_pts = 13
     metrica = "coseno"
+    graficarDatos = False 
 
     agrupar_train_test()
     vectorizar_datos(tipo_vectorizacion)
@@ -972,7 +1023,7 @@ if __name__ == "__main__":
     #DBSCAN
     #etiquetas = dbscan(Xpca_norm, eps=eps, min_pts=min_pts, metric=metrica)
     #np.save("labels_dbscan.npy", np.array(etiquetas, dtype=int))
-    eps_list = [0.4]
+    eps_list = [0.3]
     min_pts_list = [35]
 
     best_sil = -np.inf
@@ -1081,3 +1132,5 @@ if __name__ == "__main__":
     print(f"Clusters encontrados: {num_clusters}")
     print(f"Puntos ruido: {num_noise} ({100 * num_noise / total:.1f}%)")
     print("Etiquetas guardadas en: labels_dbscan.npy")
+    if graficarDatos:
+        graficar_metricas()
